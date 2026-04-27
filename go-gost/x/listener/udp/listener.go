@@ -10,6 +10,7 @@ import (
 	admission "github.com/go-gost/x/admission/wrapper"
 	xnet "github.com/go-gost/x/internal/net"
 	"github.com/go-gost/x/internal/net/udp"
+	climiter "github.com/go-gost/x/limiter/conn/wrapper"
 	traffic_limiter "github.com/go-gost/x/limiter/traffic"
 	limiter_wrapper "github.com/go-gost/x/limiter/traffic/wrapper"
 	metrics "github.com/go-gost/x/metrics/wrapper"
@@ -70,7 +71,7 @@ func (l *udpListener) Init(md md.Metadata) (err error) {
 		limiter.NetworkOption(conn.LocalAddr().Network()),
 	)
 
-	l.ln = udp.NewListener(conn, &udp.ListenConfig{
+	ln := udp.NewListener(conn, &udp.ListenConfig{
 		Backlog:        l.md.backlog,
 		ReadQueueSize:  l.md.readQueueSize,
 		ReadBufferSize: l.md.readBufferSize,
@@ -78,11 +79,49 @@ func (l *udpListener) Init(md md.Metadata) (err error) {
 		TTL:            l.md.ttl,
 		Logger:         l.logger,
 	})
+	l.ln = ln
 	return
 }
 
 func (l *udpListener) Accept() (conn net.Conn, err error) {
-	return l.ln.Accept()
+	conn, err = l.ln.Accept()
+	if err != nil {
+		return
+	}
+
+	if l.options.ConnLimiter != nil {
+		host, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+		if lim := l.options.ConnLimiter.Limiter(host); lim != nil {
+			if !lim.Allow(1) {
+				_ = conn.Close()
+				return closedConn{Conn: conn}, nil
+			}
+			conn = climiter.WrapConn(lim, conn)
+		}
+	}
+
+	conn = limiter_wrapper.WrapConn(
+		conn,
+		l.options.TrafficLimiter,
+		conn.RemoteAddr().String(),
+		limiter.ScopeOption(limiter.ScopeConn),
+		limiter.ServiceOption(l.options.Service),
+		limiter.NetworkOption(conn.LocalAddr().Network()),
+		limiter.SrcOption(conn.RemoteAddr().String()),
+	)
+	return
+}
+
+type closedConn struct {
+	net.Conn
+}
+
+func (c closedConn) Read([]byte) (int, error) {
+	return 0, net.ErrClosed
+}
+
+func (c closedConn) Write([]byte) (int, error) {
+	return 0, net.ErrClosed
 }
 
 func (l *udpListener) Addr() net.Addr {
