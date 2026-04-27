@@ -216,6 +216,36 @@ func TestForwardRepositoryPersistsPerIPLimits(t *testing.T) {
 	}
 }
 
+func TestRollbackForwardFieldsRestoresPerIPLimits(t *testing.T) {
+	r, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("open repo: %v", err)
+	}
+	defer r.Close()
+
+	now := time.Now().UnixMilli()
+	forwardID, err := r.CreateForwardTx(1, "admin", "rollback-per-ip-forward", 2, "1.1.1.1:443", "fifo", now, 1, nil, 0, "", nil, 7, 5, int64(21), 2)
+	if err != nil {
+		t.Fatalf("CreateForwardTx: %v", err)
+	}
+	if err := r.UpdateForward(forwardID, "rollback-per-ip-forward", 2, "2.2.2.2:443", "fifo", now+1, nil, 0, 0, nil, 0); err != nil {
+		t.Fatalf("UpdateForward: %v", err)
+	}
+
+	r.RollbackForwardFields(forwardID, 1, "admin", "rollback-per-ip-forward", 2, "1.1.1.1:443", "fifo", 1, nil, 7, 5, int64(21), 2, now+2)
+
+	record, err := r.GetForwardRecord(forwardID)
+	if err != nil {
+		t.Fatalf("GetForwardRecord: %v", err)
+	}
+	if record.IPMaxConn != 5 {
+		t.Fatalf("expected rollback ipMaxConn 5, got %d", record.IPMaxConn)
+	}
+	if !record.IPSpeedID.Valid || record.IPSpeedID.Int64 != 21 {
+		t.Fatalf("expected rollback ipSpeedId 21, got %+v", record.IPSpeedID)
+	}
+}
+
 func mustRepoLastInsertID(t *testing.T, r *Repository) int64 {
 	t.Helper()
 	var id int64

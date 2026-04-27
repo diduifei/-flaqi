@@ -1958,7 +1958,7 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 	maxConn := asInt(req["maxConn"], forward.MaxConn)
 	proxyProtocol := asInt(req["proxyProtocol"], forward.ProxyProtocol)
 
-	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, now, newSpeedID, maxConn, 0, nil, proxyProtocol); err != nil {
+	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, now, newSpeedID, maxConn, forward.IPMaxConn, forward.IPSpeedID, proxyProtocol); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
@@ -4110,7 +4110,7 @@ func (h *Handler) rollbackForwardMutation(oldForward *forwardRecord, oldPorts []
 	h.repo.RollbackForwardFields(
 		oldForward.ID, oldForward.UserID, oldForward.UserName, oldForward.Name,
 		oldForward.TunnelID, oldForward.RemoteAddr, oldForward.Strategy, oldForward.Status,
-		oldForward.SpeedID, oldForward.MaxConn, oldForward.ProxyProtocol,
+		oldForward.SpeedID, oldForward.MaxConn, oldForward.IPMaxConn, oldForward.IPSpeedID, oldForward.ProxyProtocol,
 		time.Now().UnixMilli(),
 	)
 

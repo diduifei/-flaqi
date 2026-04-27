@@ -785,7 +785,7 @@ func (r *Repository) UpdateForwardPortBindIP(forwardID, nodeID int64, port int, 
 		Update("in_ip", sql.NullString{String: inIP, Valid: strings.TrimSpace(inIP) != ""}).Error
 }
 
-func (r *Repository) RollbackForwardFields(id, userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, status int, speedID interface{}, maxConn int, proxyProtocol int, now int64) {
+func (r *Repository) RollbackForwardFields(id, userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, status int, speedID interface{}, maxConn int, ipMaxConn int, ipSpeedID interface{}, proxyProtocol int, now int64) {
 	if r == nil || r.db == nil {
 		return
 	}
@@ -801,6 +801,8 @@ func (r *Repository) RollbackForwardFields(id, userID int64, userName, name stri
 			"status":         status,
 			"speed_id":       nullInt64FromInterface(speedID),
 			"max_conn":       maxConn,
+			"ip_max_conn":    ipMaxConn,
+			"ip_speed_id":    nullInt64FromInterface(ipSpeedID),
 			"proxy_protocol": proxyProtocol,
 			"updated_time":   now,
 		}).Error
