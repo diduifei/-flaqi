@@ -74,6 +74,33 @@ func TestTunnelUpdatePersistsDefaultProbeTargetAsEmpty(t *testing.T) {
 	}
 }
 
+func TestTunnelUpdateWithoutProbeTargetFieldsPreservesExistingTarget(t *testing.T) {
+	h := setupProbeTargetTunnelHandler(t)
+	seedProbeTargetTunnel(t, h, 79, "existing", "old.example.com", 9443)
+	body := bytes.NewReader([]byte(`{
+		"id":79,
+		"name":"existing",
+		"type":1,
+		"flow":1,
+		"trafficRatio":1,
+		"status":1,
+		"inNodeId":[{"nodeId":10,"protocol":"tls"}]
+	}`))
+
+	res := httptest.NewRecorder()
+	h.tunnelUpdate(res, httptest.NewRequest(http.MethodPost, "/api/v1/tunnel/update", body))
+	assertProbeTargetSuccess(t, res)
+
+	items, err := h.repo.ListTunnels()
+	if err != nil {
+		t.Fatalf("list tunnels: %v", err)
+	}
+	item := findProbeTargetTunnelItem(t, items, 79)
+	if item["probeTargetHost"] != "old.example.com" || item["probeTargetPort"] != 9443 {
+		t.Fatalf("expected omitted probe target fields to preserve existing target, got %+v", item)
+	}
+}
+
 func TestTunnelCreateRejectsInvalidProbeTarget(t *testing.T) {
 	h := setupProbeTargetTunnelHandler(t)
 	body := bytes.NewReader([]byte(`{
