@@ -31,12 +31,37 @@ func TestTunnelQualityProberUsesConfiguredProbeTarget(t *testing.T) {
 	}
 	p.probeTunnel(77)
 
-	if !slices.Contains(calls, "30|speed.example.com|8443") {
-		t.Fatalf("expected exit probe to configured target, calls=%+v", calls)
+	if !slices.Contains(calls, "10|speed.example.com|8443") {
+		t.Fatalf("expected type 1 public probe from entry to configured target, calls=%+v", calls)
+	}
+	if slices.Contains(calls, "30|speed.example.com|8443") {
+		t.Fatalf("did not expect type 1 public probe from exit node, calls=%+v", calls)
 	}
 	snaps := p.GetAll()
 	if len(snaps) != 1 {
 		t.Fatalf("expected one quality snapshot, got %+v", snaps)
+	}
+	if snaps[0].ProbeTargetHost != "speed.example.com" || snaps[0].ProbeTargetPort != 8443 {
+		t.Fatalf("unexpected snapshot target metadata: %+v", snaps[0])
+	}
+}
+
+func TestTunnelQualityProberStoresProbeTargetWhenChainIncomplete(t *testing.T) {
+	h := setupProbeTargetTunnelHandler(t)
+	seedProbeTargetTunnel(t, h, 78, "quality-target-incomplete", "speed.example.com", 8443)
+	if err := h.repo.DB().Exec(`DELETE FROM chain_tunnel WHERE tunnel_id = ?`, 78).Error; err != nil {
+		t.Fatalf("delete chain rows: %v", err)
+	}
+
+	p := newTunnelQualityProber(h)
+	p.probeTunnel(78)
+
+	snaps := p.GetAll()
+	if len(snaps) != 1 {
+		t.Fatalf("expected one quality snapshot, got %+v", snaps)
+	}
+	if snaps[0].ErrorMessage == "" {
+		t.Fatalf("expected incomplete chain error, got %+v", snaps[0])
 	}
 	if snaps[0].ProbeTargetHost != "speed.example.com" || snaps[0].ProbeTargetPort != 8443 {
 		t.Fatalf("unexpected snapshot target metadata: %+v", snaps[0])

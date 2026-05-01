@@ -229,6 +229,9 @@ func (p *tunnelQualityProber) probeTunnel(tunnelID int64) {
 		p.storeResult(snap)
 		return
 	}
+	probeTarget := effectiveTunnelProbeTargetValues(tunnel.ProbeTargetHost, tunnel.ProbeTargetPort)
+	snap.ProbeTargetHost = probeTarget.Host
+	snap.ProbeTargetPort = probeTarget.Port
 
 	chainRows, err := h.listChainNodesForTunnel(tunnelID)
 	if err != nil || len(chainRows) == 0 {
@@ -245,20 +248,13 @@ func (p *tunnelQualityProber) probeTunnel(tunnelID int64) {
 		pingTimeoutMS:  tunnelQualityPingTimeoutMs,
 		timeoutMessage: "探测超时",
 	}
-	probeTarget := effectiveTunnelProbeTargetValues(tunnel.ProbeTargetHost, tunnel.ProbeTargetPort)
-	snap.ProbeTargetHost = probeTarget.Host
-	snap.ProbeTargetPort = probeTarget.Port
 	p.probeBestExitOwners(tunnelID, inNodes, midNodesGrouped, outNodes, ipPreference, options, probeTarget)
 
 	switch tunnel.Type {
 	case 1:
-		// Port forwarding: exit/public edge → public probe target when available.
-		publicProbeNodes := inNodes
-		if len(outNodes) > 0 {
-			publicProbeNodes = outNodes
-		}
-		if len(publicProbeNodes) > 0 {
-			lat, loss, err := p.pingNode(publicProbeNodes[0].NodeID, probeTarget.Host, probeTarget.Port, options)
+		// Port forwarding: entry → public probe target only.
+		if len(inNodes) > 0 {
+			lat, loss, err := p.pingNode(inNodes[0].NodeID, probeTarget.Host, probeTarget.Port, options)
 			if err == nil {
 				snap.ExitToBingLatency = lat
 				snap.ExitToBingLoss = loss
@@ -370,13 +366,9 @@ func (p *tunnelQualityProber) probeTunnel(tunnelID int64) {
 
 		snap.Success = probeOK
 	default:
-		// Unknown type: use exit/public edge when available, otherwise entry.
-		publicProbeNodes := inNodes
-		if len(outNodes) > 0 {
-			publicProbeNodes = outNodes
-		}
-		if len(publicProbeNodes) > 0 {
-			lat, loss, err := p.pingNode(publicProbeNodes[0].NodeID, probeTarget.Host, probeTarget.Port, options)
+		// Unknown type: entry → public probe target.
+		if len(inNodes) > 0 {
+			lat, loss, err := p.pingNode(inNodes[0].NodeID, probeTarget.Host, probeTarget.Port, options)
 			if err == nil {
 				snap.ExitToBingLatency = lat
 				snap.ExitToBingLoss = loss
