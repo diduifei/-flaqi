@@ -16,7 +16,7 @@ func TestBuildLocalAgentInstallCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := buildLocalAgentInstallCommand(tt.panelAddr, "node-token")
-			want := "apt update && apt install -y curl && curl -L https://raw.githubusercontent.com/diduifei/-flaqi/main/install.sh -o install.sh && bash install.sh -a " + tt.wantAddr + " -s node-token"
+			want := "apt update && apt install -y curl && curl -L https://raw.githubusercontent.com/diduifei/-flaqi/main/agent_install.sh -o agent_install.sh && bash agent_install.sh -a " + tt.wantAddr + " -s node-token"
 
 			if got != want {
 				t.Fatalf("buildLocalAgentInstallCommand() = %q, want %q", got, want)

@@ -13,6 +13,7 @@ env:
   DOCKERHUB_NAMESPACE: diduigege
   PANEL_IMAGE: flvx-panel
   FRONTEND_IMAGE: flvx-frontend
+  AGENT_IMAGE: flvx-agent
 
 jobs:
   docker-images:
@@ -53,6 +54,16 @@ jobs:
             type=sha,prefix=sha-
             type=ref,event=tag
 
+      - name: Docker metadata for agent
+        id: agent_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKERHUB_NAMESPACE }}/${{ env.AGENT_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-
+            type=ref,event=tag
+
       - name: Build and push panel image
         uses: docker/build-push-action@v6
         with:
@@ -70,6 +81,15 @@ jobs:
           push: true
           tags: ${{ steps.frontend_meta.outputs.tags }}
           labels: ${{ steps.frontend_meta.outputs.labels }}
+
+      - name: Build and push agent image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./go-gost
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.agent_meta.outputs.tags }}
+          labels: ${{ steps.agent_meta.outputs.labels }}
 
   agent-binaries:
     name: Build agent binary (${{ matrix.arch }})

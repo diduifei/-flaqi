@@ -494,7 +494,7 @@ func (h *Handler) nodeInstall(w http.ResponseWriter, r *http.Request) {
 }
 
 func buildLocalAgentInstallCommand(panelAddr, secret string) string {
-	return fmt.Sprintf("apt update && apt install -y curl && curl -L https://raw.githubusercontent.com/diduifei/-flaqi/main/install.sh -o install.sh && bash install.sh -a %s -s %s",
+	return fmt.Sprintf("apt update && apt install -y curl && curl -L https://raw.githubusercontent.com/diduifei/-flaqi/main/agent_install.sh -o agent_install.sh && bash agent_install.sh -a %s -s %s",
 		normalizePanelInstallHost(panelAddr), secret)
 }
 

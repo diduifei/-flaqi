@@ -4,7 +4,7 @@
 
 ## 面板端快速部署
 
-在全新的 Debian / Ubuntu 服务器上执行下面这条命令。脚本会打开交互菜单，可选择安装/更新、彻底卸载、修改前后端端口；安装时会自动安装 Docker 和 Docker Compose Plugin，直接拉取 Docker Hub 预构建镜像启动服务，不再在服务器上克隆源码和现场构建镜像。
+在全新的 Debian / Ubuntu 服务器上执行下面这条命令。脚本会打开交互菜单，可选择安装/更新、彻底卸载、修改前后端端口；安装时会自动安装 Docker 和 Docker Compose Plugin，直接拉取 Docker Hub 预构建镜像启动服务。
 
 ```bash
 curl -L https://raw.githubusercontent.com/diduifei/-flaqi/main/panel_install.sh -o panel_install.sh && bash panel_install.sh
@@ -15,6 +15,7 @@ curl -L https://raw.githubusercontent.com/diduifei/-flaqi/main/panel_install.sh 
 ```text
 diduigege/flvx-panel:latest
 diduigege/flvx-frontend:latest
+diduigege/flvx-agent:latest
 ```
 
 ## 节点端快速部署
@@ -22,10 +23,10 @@ diduigege/flvx-frontend:latest
 在面板中添加节点后，复制节点 Token，并在中转机上运行：
 
 ```bash
-curl -L https://raw.githubusercontent.com/diduifei/-flaqi/main/install.sh -o install.sh && bash install.sh -a 你的主控IP:6365 -s 你的通讯Token
+curl -L https://raw.githubusercontent.com/diduifei/-flaqi/main/agent_install.sh -o agent_install.sh && bash agent_install.sh -a 你的主控IP:6365 -s 你的通讯Token
 ```
 
-节点脚本会自动识别 `linux/amd64` 或 `linux/arm64`，从 GitHub Releases 下载最新 `flvx-agent` 二进制，安装到 `/usr/local/bin/`，并创建 `flvx-agent.service` 由 systemd 托管运行。
+节点脚本会自动安装 Docker，清理旧 `flvx-agent` 容器，直接拉取 `diduigege/flvx-agent:latest` 镜像运行，并在启动后执行健康检查。
 
 ## 默认管理账户
 
