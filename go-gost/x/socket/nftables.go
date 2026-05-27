@@ -77,10 +77,17 @@ func ApplyNftForward(req nftForwardRequest) error {
 		}
 	}
 
-	script := buildApplyNftForwardScript(req, remoteIP, listenIP)
 	if err := ensureNftForwardTable(); err != nil {
 		return err
 	}
+	if err := cleanupNftForwardChain(nftForwardChainName(req.ID, req.Proto)); err != nil {
+		return err
+	}
+	if err := cleanupNftForwardChain(nftForwardPostChainName(req.ID, req.Proto)); err != nil {
+		return err
+	}
+
+	script := buildApplyNftForwardScript(req, remoteIP, listenIP)
 	return runNftScript(script)
 }
 
@@ -88,15 +95,15 @@ func DeleteNftForward(forwardID int64) error {
 	if forwardID <= 0 {
 		return fmt.Errorf("invalid nftables forward id")
 	}
-	if err := ensureNftForwardTable(); err != nil {
-		return err
-	}
-	script := strings.Builder{}
 	for _, proto := range []string{"tcp", "udp"} {
-		script.WriteString(fmt.Sprintf("destroy chain inet %s %s\n", nftForwardTable, nftForwardChainName(forwardID, proto)))
-		script.WriteString(fmt.Sprintf("destroy chain inet %s %s\n", nftForwardTable, nftForwardPostChainName(forwardID, proto)))
+		if err := cleanupNftForwardChain(nftForwardChainName(forwardID, proto)); err != nil {
+			return err
+		}
+		if err := cleanupNftForwardChain(nftForwardPostChainName(forwardID, proto)); err != nil {
+			return err
+		}
 	}
-	return runNftScript(script.String())
+	return nil
 }
 
 func buildApplyNftForwardScript(req nftForwardRequest, remoteIP net.IP, listenIP net.IP) string {
@@ -110,8 +117,6 @@ func buildApplyNftForwardScript(req nftForwardRequest, remoteIP net.IP, listenIP
 	dnatTarget := nftAddress(remoteIP) + ":" + strconv.Itoa(req.RemotePort)
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("destroy chain inet %s %s\n", nftForwardTable, preChain))
-	b.WriteString(fmt.Sprintf("destroy chain inet %s %s\n", nftForwardTable, postChain))
 	b.WriteString(fmt.Sprintf("add chain inet %s %s { type nat hook prerouting priority dstnat; policy accept; }\n", nftForwardTable, preChain))
 	b.WriteString(fmt.Sprintf("add chain inet %s %s { type nat hook postrouting priority srcnat; policy accept; }\n", nftForwardTable, postChain))
 
@@ -172,6 +177,35 @@ func runNftScript(script string) error {
 		return fmt.Errorf("nft failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func cleanupNftForwardChain(chain string) error {
+	if err := runNftScriptIgnoreMissing(fmt.Sprintf("flush chain inet %s %s\n", nftForwardTable, chain)); err != nil {
+		return err
+	}
+	return runNftScriptIgnoreMissing(fmt.Sprintf("delete chain inet %s %s\n", nftForwardTable, chain))
+}
+
+func runNftScriptIgnoreMissing(script string) error {
+	cmd := exec.Command("nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(script)
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	msg := strings.TrimSpace(string(output))
+	if isNftMissingObjectError(msg) {
+		return nil
+	}
+	return fmt.Errorf("nft failed: %w: %s", err, msg)
+}
+
+func isNftMissingObjectError(msg string) bool {
+	msg = strings.ToLower(msg)
+	return strings.Contains(msg, "no such file or directory") ||
+		strings.Contains(msg, "does not exist") ||
+		strings.Contains(msg, "no such table") ||
+		strings.Contains(msg, "no such chain")
 }
 
 func ensureNftForwardTable() error {
