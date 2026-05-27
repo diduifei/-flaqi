@@ -4,29 +4,23 @@
 
 ---
 
-## 部署流程 (Docker Compose 部署)
+## 部署流程
 
-换到任何全新的服务器上，确保系统已安装 Docker 和 Docker Compose，直接复制运行以下单行命令，系统会自动拉取专属源码并现场构建 Docker 容器跑起来。
+### 面板端快速部署
 
-### 快速部署 (一键安装)
-
-**面板端 (Panel)：**
+在全新的 Debian / Ubuntu 服务器上，直接复制运行下面这一行命令。脚本会自动安装基础依赖和 Docker，拉取你的专属源码，执行 `docker compose up -d --build --force-recreate`，并在最后进入 Caddy 域名 / 纯 IP 反代交互配置。
 
 ```bash
-git clone https://github.com/diduifei/-flaqi.git /root/flvx && cd /root/flvx && docker compose up -d --build
+curl -fsSL https://raw.githubusercontent.com/diduifei/-flaqi/main/panel_install.sh -o panel_install.sh && bash panel_install.sh
 ```
 
-**节点端 (Agent)：**
+### 节点端安装
 
-由于当前版本已经集成 nftables 内核态转发，节点端也必须现场克隆你的魔改源码并本地 Build，不能拉取官方旧镜像。把面板生成的主控 IP 和通讯 Token 填进去后，在中转机上运行：
-
-```bash
-git clone https://github.com/diduifei/-flaqi.git /root/flvx_agent && cd /root/flvx_agent/go-backend && docker build -t flvx-agent-local . && docker run -d --name flvx-agent --network host --restart always --privileged -v /var/run/docker.sock:/var/run/docker.sock flvx-agent-local ./flvx-agent -a 你的主控IP:6365 -s 你的通讯Token
-```
+面板中点击节点“安装”按钮后，会自动生成带有主控地址和当前节点 Token 的一键安装命令。复制到中转节点执行即可。
 
 ## 默认管理账户
 
-首次安装完成后，访问前端 `http://你的服务器IP` (默认 80 端口)，使用以下初始凭据登录面板：
+首次安装完成后，访问前端 `http://你的服务器IP`，使用以下初始凭据登录面板：
 
 ```text
 账号: admin_user
