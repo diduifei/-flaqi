@@ -16,6 +16,11 @@ PUBLIC_URL="${FLVX_PUBLIC_URL:-http://127.0.0.1:6365}"
 AGENT_SECRET="${FLVX_AGENT_SECRET:-}"
 GO_VERSION="${FLVX_GO_VERSION:-1.25.7}"
 PNPM_VERSION="${FLVX_PNPM_VERSION:-11.3.0}"
+CADDY_ENABLED="${FLVX_ENABLE_CADDY:-}"
+CADDY_MODE="${FLVX_CADDY_MODE:-}"
+CADDY_DOMAIN="${FLVX_DOMAIN:-}"
+CADDY_SITE_ADDR=":80"
+CADDY_PANEL_URL=""
 
 log() {
   printf '\n==> %s\n' "$*"
@@ -45,6 +50,43 @@ install_base_packages() {
   systemctl enable --now nftables || true
 }
 
+configure_caddy_options() {
+  if [[ -z "$CADDY_ENABLED" ]]; then
+    read -r -p "是否开启 Caddy 反代? (Y/n): " CADDY_ENABLED
+  fi
+
+  case "${CADDY_ENABLED,,}" in
+    n|no|false|0)
+      CADDY_ENABLED="false"
+      return
+      ;;
+    *)
+      CADDY_ENABLED="true"
+      ;;
+  esac
+
+  if [[ -z "$CADDY_MODE" ]]; then
+    echo "请选择 Caddy 反代模式："
+    echo "1) 绑定自定义域名并自动配置 HTTPS"
+    echo "2) 仅使用纯 IP 端口反代"
+    read -r -p "请输入选项 [1/2，默认 2]: " CADDY_MODE
+  fi
+
+  case "$CADDY_MODE" in
+    1|domain|https)
+      while [[ -z "$CADDY_DOMAIN" ]]; do
+        read -r -p "请输入绑定域名（例如 panel.yourdomain.com）: " CADDY_DOMAIN
+      done
+      CADDY_SITE_ADDR="$CADDY_DOMAIN"
+      CADDY_PANEL_URL="https://${CADDY_DOMAIN}"
+      ;;
+    *)
+      CADDY_MODE="2"
+      CADDY_SITE_ADDR=":80"
+      ;;
+  esac
+}
+
 enable_kernel_forwarding() {
   log "Enabling Linux kernel IP forwarding"
   sysctl -w net.ipv4.ip_forward=1
@@ -57,6 +99,11 @@ enable_kernel_forwarding() {
 }
 
 install_caddy() {
+  if [[ "$CADDY_ENABLED" != "true" ]]; then
+    log "Skipping Caddy installation"
+    return
+  fi
+
   log "Installing Caddy"
   if ! command -v caddy >/dev/null 2>&1; then
     install -d -m 0755 /etc/apt/keyrings
@@ -199,16 +246,28 @@ EOF
 }
 
 write_caddyfile() {
+  if [[ "$CADDY_ENABLED" != "true" ]]; then
+    return
+  fi
+
   log "Configuring Caddy"
   cat > /etc/caddy/Caddyfile <<EOF
-:80 {
-    root * ${WEB_DIR}
+${CADDY_SITE_ADDR} {
     encode gzip zstd
-    try_files {path} {path}/ /index.html
-    file_server
 
-    reverse_proxy /api/* ${BACKEND_ADDR}
-    reverse_proxy /system-info* ${BACKEND_ADDR}
+    handle /api/* {
+        reverse_proxy ${BACKEND_ADDR}
+    }
+
+    handle /system-info* {
+        reverse_proxy ${BACKEND_ADDR}
+    }
+
+    handle {
+        root * ${WEB_DIR}
+        try_files {path} {path}/ /index.html
+        file_server
+    }
 }
 EOF
 }
@@ -217,7 +276,9 @@ start_services() {
   log "Starting services"
   systemctl daemon-reload
   systemctl enable --now flvx-server
-  systemctl restart caddy
+  if [[ "$CADDY_ENABLED" == "true" ]]; then
+    systemctl restart caddy
+  fi
   if [[ -f "$AGENT_CONFIG_DIR/config.json" ]]; then
     systemctl enable --now flvx-agent
   else
@@ -228,6 +289,7 @@ start_services() {
 
 main() {
   need_root
+  configure_caddy_options
   install_base_packages
   enable_kernel_forwarding
   install_caddy
@@ -244,8 +306,15 @@ main() {
 
   local ip
   ip="$(curl -fsSL https://ipv4.icanhazip.com 2>/dev/null || hostname -I | awk '{print $1}')"
+  if [[ -z "$CADDY_PANEL_URL" ]]; then
+    if [[ "$CADDY_ENABLED" == "true" ]]; then
+      CADDY_PANEL_URL="http://${ip}"
+    else
+      CADDY_PANEL_URL="http://${ip}:6365"
+    fi
+  fi
   log "FLVX is ready"
-  echo "Panel: http://${ip}"
+  echo "Panel: ${CADDY_PANEL_URL}"
   echo "Backend: ${BACKEND_ADDR}"
 }
 
