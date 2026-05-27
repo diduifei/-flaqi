@@ -84,6 +84,7 @@ import { useNodeOfflineTimers } from "@/pages/node/use-node-offline-timers";
 import { useNodeRealtime } from "@/pages/node/use-node-realtime";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { loadStoredOrder, saveOrder } from "@/utils/order-storage";
+import { formatSpeedToMbps } from "@/utils/speed";
 
 const NODE_FALLBACK_REFRESH_INTERVAL_MS = 15000;
 
@@ -668,18 +669,6 @@ export default function NodePage() {
   }, [loadNodes, usingPollingFallback]);
 
   // 格式化速度
-  const formatSpeed = (bytesPerSecond: number): string => {
-    if (bytesPerSecond === 0) return "0 B/s";
-
-    const k = 1024;
-    const sizes = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"];
-    const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
-
-    return (
-      parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
-    );
-  };
-
   // 格式化开机时间
   const formatUptime = (seconds: number): string => {
     if (seconds === 0) return "-";
@@ -2243,7 +2232,7 @@ export default function NodePage() {
                                       </span>
                                       <span className="font-mono">
                                         {remoteUsage.maxBandwidth > 0
-                                          ? formatSpeed(
+                                          ? formatSpeedToMbps(
                                               remoteUsage.maxBandwidth,
                                             )
                                           : "不限"}

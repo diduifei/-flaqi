@@ -78,6 +78,7 @@ import {
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Progress } from "@/shadcn-bridge/heroui/progress";
 import { useNodeRealtime } from "@/pages/node/use-node-realtime";
+import { formatSpeedToMbps } from "@/utils/speed";
 
 interface MonitorViewProps {
   nodeMap: Map<
@@ -145,16 +146,6 @@ const formatBytes = (bytes: number): string => {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-};
-
-const formatBytesPerSecond = (bytesPerSecond: number): string => {
-  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "0 B/s";
-
-  const k = 1024;
-  const sizes = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"];
-  const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
-
-  return `${parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 };
 
 const formatUptime = (seconds: number) => {
@@ -268,7 +259,7 @@ function ServerCard({
             </div>
             <span className="font-mono text-xs font-semibold truncate">
               {isOnline && metric
-                ? formatBytesPerSecond(metric.netOutSpeed)
+                ? formatSpeedToMbps(metric.netOutSpeed)
                 : "-"}
             </span>
           </div>
@@ -280,7 +271,7 @@ function ServerCard({
             </div>
             <span className="font-mono text-xs font-semibold truncate">
               {isOnline && metric
-                ? formatBytesPerSecond(metric.netInSpeed)
+                ? formatSpeedToMbps(metric.netInSpeed)
                 : "-"}
             </span>
           </div>
@@ -404,7 +395,7 @@ const NodeMetricsChartCard = React.memo(function NodeMetricsChartCard({
     if (!Number.isFinite(n)) return "";
     switch (activeMetricType) {
       case "network":
-        return formatBytesPerSecond(n);
+        return formatSpeedToMbps(n);
       case "cpu":
       case "memory":
       case "disk":
@@ -422,7 +413,7 @@ const NodeMetricsChartCard = React.memo(function NodeMetricsChartCard({
     if (!Number.isFinite(n)) return "-";
     switch (activeMetricType) {
       case "network":
-        return formatBytesPerSecond(n);
+        return formatSpeedToMbps(n);
       case "cpu":
       case "memory":
       case "disk":
@@ -1392,7 +1383,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                             <div className="flex items-center gap-1.5 font-mono text-success-500">
                               <span className="w-[86px] text-right inline-block">
                                 {isOnline && metric
-                                  ? formatBytesPerSecond(metric.netOutSpeed)
+                                  ? formatSpeedToMbps(metric.netOutSpeed)
                                   : "-"}
                               </span>
                               <div className="flex items-center justify-center p-[3px] rounded-full bg-success-50 dark:bg-success-500/10 text-success-500">
@@ -1405,7 +1396,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                             <div className="flex items-center gap-1.5 font-mono text-primary-500">
                               <span className="w-[86px] text-right inline-block">
                                 {isOnline && metric
-                                  ? formatBytesPerSecond(metric.netInSpeed)
+                                  ? formatSpeedToMbps(metric.netInSpeed)
                                   : "-"}
                               </span>
                               <div className="flex items-center justify-center p-[3px] rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-500">
@@ -1613,12 +1604,12 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                 },
                 {
                   label: "↓ 下行速度",
-                  value: formatBytesPerSecond(detailRealtimeMetric.netInSpeed),
+                  value: formatSpeedToMbps(detailRealtimeMetric.netInSpeed),
                   color: "success" as const,
                 },
                 {
                   label: "↑ 上行速度",
-                  value: formatBytesPerSecond(detailRealtimeMetric.netOutSpeed),
+                  value: formatSpeedToMbps(detailRealtimeMetric.netOutSpeed),
                   color: "primary" as const,
                 },
                 {

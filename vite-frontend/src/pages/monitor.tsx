@@ -17,6 +17,7 @@ import { getMonitorNodes } from "@/api";
 import { MonitorView } from "@/pages/node/monitor-view";
 import { TunnelMonitorView } from "@/pages/node/tunnel-monitor-view";
 import { useNodeRealtime } from "@/pages/node/use-node-realtime";
+import { formatSpeedToMbps } from "@/utils/speed";
 
 type MonitorNode = {
   id: number;
@@ -26,16 +27,6 @@ type MonitorNode = {
 };
 
 type MonitorTab = "nodes" | "tunnels";
-
-const formatBytesPerSecond = (bytesPerSecond: number): string => {
-  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "0 B/s";
-
-  const k = 1024;
-  const sizes = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"];
-  const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
-
-  return `${parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-};
 
 export default function MonitorPage() {
   const [nodes, setNodes] = useState<MonitorNodeApiItem[]>([]);
@@ -241,7 +232,7 @@ export default function MonitorPage() {
           </div>
           <div className="z-10 relative">
             <span className="text-4xl font-bold text-foreground">
-              {formatBytesPerSecond(aggregateMetrics.totalBandwidth)}
+              {formatSpeedToMbps(aggregateMetrics.totalBandwidth)}
             </span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-12 flex items-end gap-1 px-6 pb-4 opacity-50 z-0">
