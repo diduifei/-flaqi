@@ -12,14 +12,16 @@ import (
 const nftForwardTable = "flvx_forward"
 
 type nftForwardRequest struct {
-	ID         int64  `json:"id"`
-	Proto      string `json:"proto"`
-	ListenIP   string `json:"listenIP,omitempty"`
-	ListenPort int    `json:"listenPort"`
-	RemoteIP   string `json:"remoteIP"`
-	RemotePort int    `json:"remotePort"`
-	MaxConn    int    `json:"maxConn"`
-	IPMaxConn  int    `json:"ipMaxConn"`
+	ID                  int64    `json:"id"`
+	Proto               string   `json:"proto"`
+	ListenIP            string   `json:"listenIP,omitempty"`
+	ListenPort          int      `json:"listenPort"`
+	Targets             []string `json:"targets,omitempty"`
+	LoadBalanceStrategy string   `json:"loadBalanceStrategy,omitempty"`
+	RemoteIP            string   `json:"remoteIP"`
+	RemotePort          int      `json:"remotePort"`
+	MaxConn             int      `json:"maxConn"`
+	IPMaxConn           int      `json:"ipMaxConn"`
 }
 
 func (w *WebSocketReporter) handleNftablesApply(data interface{}) error {
@@ -61,6 +63,14 @@ func ApplyNftForward(req nftForwardRequest) error {
 	}
 	if req.Proto != "tcp" && req.Proto != "udp" {
 		return fmt.Errorf("unsupported nftables proto %q", req.Proto)
+	}
+	if len(req.Targets) > 0 && strings.TrimSpace(req.RemoteIP) == "" {
+		host, port, err := splitNftTargetHostPort(req.Targets[0])
+		if err != nil {
+			return err
+		}
+		req.RemoteIP = host
+		req.RemotePort = port
 	}
 	if req.ListenPort <= 0 || req.ListenPort > 65535 || req.RemotePort <= 0 || req.RemotePort > 65535 {
 		return fmt.Errorf("invalid nftables port")
@@ -104,6 +114,22 @@ func DeleteNftForward(forwardID int64) error {
 		}
 	}
 	return nil
+}
+
+func splitNftTargetHostPort(target string) (string, int, error) {
+	host, portText, err := net.SplitHostPort(target)
+	if err != nil {
+		return "", 0, err
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port <= 0 || port > 65535 {
+		return "", 0, fmt.Errorf("invalid nftables target port %q", portText)
+	}
+	host = strings.Trim(host, "[]")
+	if net.ParseIP(host) == nil {
+		return "", 0, fmt.Errorf("nftables forward mode requires a valid IP target")
+	}
+	return host, port, nil
 }
 
 func buildApplyNftForwardScript(req nftForwardRequest, remoteIP net.IP, listenIP net.IP) string {

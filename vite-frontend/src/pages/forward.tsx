@@ -114,6 +114,7 @@ interface Forward {
   remoteAddr: string;
   interfaceName?: string;
   strategy: string;
+  loadBalanceStrategy: string;
   status: number;
   inFlow: number;
   outFlow: number;
@@ -167,6 +168,7 @@ interface ForwardForm {
   remoteAddr: string;
   interfaceName?: string;
   strategy: string;
+  loadBalanceStrategy: string;
   speedId: number | null;
   ipMaxConn?: number;
   ipSpeedId: number | null;
@@ -723,6 +725,29 @@ const fromDateTimeLocalValue = (value: string): number | null => {
   return Number.isFinite(time) ? time : null;
 };
 
+const normalizeLoadBalanceStrategy = (value?: unknown): string => {
+  const strategy = String(value || "").trim().toLowerCase();
+
+  switch (strategy) {
+    case "round":
+    case "round-robin":
+      return "round-robin";
+    case "rand":
+    case "random":
+      return "random";
+    case "hash":
+    case "ip_hash":
+      return "ip_hash";
+    case "least_conn":
+    case "least-conn":
+      return "least_conn";
+    case "fifo":
+    case "failover":
+    default:
+      return "failover";
+  }
+};
+
 const normalizeForwardItems = (items: Forward[]): Forward[] => {
   return items.map((forward) => ({
     ...forward,
@@ -741,6 +766,10 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
     inPort: forward.inPort ?? 0,
     remoteAddr: forward.remoteAddr || "",
     strategy: typeof forward.strategy === "string" ? forward.strategy : "fifo",
+    loadBalanceStrategy:
+      typeof forward.loadBalanceStrategy === "string"
+        ? forward.loadBalanceStrategy
+        : normalizeLoadBalanceStrategy(forward.strategy),
     status: typeof forward.status === "number" ? forward.status : 0,
     inFlow: forward.inFlow ?? 0,
     outFlow: forward.outFlow ?? 0,
@@ -953,7 +982,7 @@ const SortableTableRow = ({
     backgroundColor: isDragging ? "var(--nextui-default-100)" : undefined,
   };
 
-  const strategyDisplay = getStrategyDisplay(forward.strategy);
+  const strategyDisplay = getStrategyDisplay(forward.loadBalanceStrategy);
 
   return (
     <TableRow key={forward.id} ref={setNodeRef} style={style}>
@@ -1155,7 +1184,7 @@ const SortableCompactTableRow = ({
     backgroundColor: isDragging ? "var(--nextui-default-100)" : undefined,
   };
 
-  const strategyDisplay = getStrategyDisplay(forward.strategy);
+  const strategyDisplay = getStrategyDisplay(forward.loadBalanceStrategy);
 
   return (
     <TableRow key={forward.id} ref={setNodeRef} style={style}>
@@ -1525,6 +1554,7 @@ export default function ForwardPage() {
     remoteAddr: "",
     interfaceName: "",
     strategy: "fifo",
+    loadBalanceStrategy: "failover",
     speedId: null,
     ipMaxConn: 0,
     ipSpeedId: null,
@@ -2330,6 +2360,7 @@ export default function ForwardPage() {
       remoteAddr: "",
       interfaceName: "",
       strategy: "fifo",
+      loadBalanceStrategy: "failover",
       speedId: null,
       ipMaxConn: 0,
       ipSpeedId: null,
@@ -2358,6 +2389,9 @@ export default function ForwardPage() {
       remoteAddr: forward.remoteAddr.split(",").join("\n"),
       interfaceName: forward.interfaceName || "",
       strategy: forward.strategy || "fifo",
+      loadBalanceStrategy: normalizeLoadBalanceStrategy(
+        forward.loadBalanceStrategy || forward.strategy,
+      ),
       speedId: normalizeSpeedId(forward.speedId),
       ipMaxConn: forward.ipMaxConn ?? 0,
       ipSpeedId: normalizeSpeedId(forward.ipSpeedId),
@@ -2482,8 +2516,6 @@ export default function ForwardPage() {
         .filter((addr) => addr)
         .join(",");
 
-      const addressCount = processedRemoteAddr.split(",").length;
-
       let res: { code: number; msg: string };
       const normalizedSpeedId = normalizeSpeedId(form.speedId);
       const speedLimitAutoCleared = isMissingSpeedLimit(form.speedId);
@@ -2502,7 +2534,7 @@ export default function ForwardPage() {
           inPort: form.inPort,
           ...(inIpTouched ? { inIp: form.inIp || "" } : {}),
           remoteAddr: processedRemoteAddr,
-          strategy: addressCount > 1 ? form.strategy : "fifo",
+          loadBalanceStrategy: form.loadBalanceStrategy,
           speedId: normalizedSpeedId,
           ipMaxConn: form.ipMaxConn,
           ...(isAdmin ? { ipSpeedId: normalizedIPSpeedId } : {}),
@@ -2522,7 +2554,7 @@ export default function ForwardPage() {
           inPort: form.inPort,
           inIp: form.inIp || undefined,
           remoteAddr: processedRemoteAddr,
-          strategy: addressCount > 1 ? form.strategy : "fifo",
+          loadBalanceStrategy: form.loadBalanceStrategy,
           speedId: normalizedSpeedId,
           ipMaxConn: form.ipMaxConn,
           ...(isAdmin ? { ipSpeedId: normalizedIPSpeedId } : {}),
@@ -3203,27 +3235,20 @@ export default function ForwardPage() {
 
   // 获取策略显示
   const getStrategyDisplay = (strategy: string) => {
-    switch (strategy) {
-      case "fifo":
-        return { color: "primary", text: "主备" };
-      case "round":
+    switch (normalizeLoadBalanceStrategy(strategy)) {
+      case "failover":
+        return { color: "primary", text: "故障转移" };
+      case "round-robin":
         return { color: "success", text: "轮询" };
-      case "rand":
+      case "random":
         return { color: "warning", text: "随机" };
+      case "ip_hash":
+        return { color: "secondary", text: "IP Hash" };
+      case "least_conn":
+        return { color: "default", text: "最小连接" };
       default:
         return { color: "default", text: "未知" };
     }
-  };
-
-  // 获取地址数量
-  const getAddressCount = (addressString: string): number => {
-    if (!addressString) return 0;
-    const addresses = addressString
-      .split("\n")
-      .map((addr) => addr.trim())
-      .filter((addr) => addr);
-
-    return addresses.length;
   };
 
   // 处理拖拽结束
@@ -3968,7 +3993,7 @@ export default function ForwardPage() {
   // 渲染规则卡片
   const renderForwardCard = (forward: Forward, listeners?: any) => {
     const statusDisplay = getStatusDisplay(forward.status);
-    const strategyDisplay = getStrategyDisplay(forward.strategy);
+    const strategyDisplay = getStrategyDisplay(forward.loadBalanceStrategy);
 
     return (
       <Card
@@ -5114,13 +5139,13 @@ export default function ForwardPage() {
                   </Select>
 
                   <Textarea
-                    description="格式: IP:端口 或 域名:端口，支持多个地址（每行一个）"
+                    description="一行一个 IP:端口 或 域名:端口，空行会被忽略。"
                     errorMessage={errors.remoteAddr}
                     isInvalid={!!errors.remoteAddr}
-                    label="落地地址"
+                    label="目标地址"
                     maxRows={6}
                     minRows={3}
-                    placeholder="请输入落地地址，多个地址用换行分隔，例如:&#10;192.168.1.100:10000&#10;[2001:db8::10]:10086&#10;test.example.com:10010"
+                    placeholder="一行一个 IP:端口，空行会被忽略，例如:&#10;192.168.1.100:10000&#10;[2001:db8::10]:10086&#10;test.example.com:10010"
                     value={form.remoteAddr}
                     variant="bordered"
                     onChange={(e) =>
@@ -5131,25 +5156,31 @@ export default function ForwardPage() {
                     }
                   />
 
-                  {getAddressCount(form.remoteAddr) > 1 && (
-                    <Select
-                      description="多个目标地址的负载均衡策略"
-                      label="负载策略"
-                      placeholder="请选择负载均衡策略"
-                      selectedKeys={[form.strategy]}
-                      variant="bordered"
-                      onSelectionChange={(keys) => {
-                        const selectedKey = Array.from(keys)[0] as string;
+                  <Select
+                    description="多目标时生效；least_conn 当前由节点按轮询执行，配置会保留。"
+                    label="负载均衡策略"
+                    placeholder="请选择负载均衡策略"
+                    selectedKeys={[form.loadBalanceStrategy]}
+                    variant="bordered"
+                    onSelectionChange={(keys) => {
+                      const selectedKey = normalizeLoadBalanceStrategy(
+                        Array.from(keys)[0],
+                      );
 
-                        setForm((prev) => ({ ...prev, strategy: selectedKey }));
-                      }}
-                    >
-                      <SelectItem key="fifo">主备模式 - 自上而下</SelectItem>
-                      <SelectItem key="round">轮询模式 - 依次轮换</SelectItem>
-                      <SelectItem key="rand">随机模式 - 随机选择</SelectItem>
-                      <SelectItem key="hash">哈希模式 - IP哈希</SelectItem>
-                    </Select>
-                  )}
+                      setForm((prev) => ({
+                        ...prev,
+                        loadBalanceStrategy: selectedKey,
+                      }));
+                    }}
+                  >
+                    <SelectItem key="round-robin">轮询 (round-robin)</SelectItem>
+                    <SelectItem key="random">随机 (random)</SelectItem>
+                    <SelectItem key="ip_hash">IP Hash (ip_hash)</SelectItem>
+                    <SelectItem key="least_conn">
+                      最小连接数 (least_conn)
+                    </SelectItem>
+                    <SelectItem key="failover">故障转移 (failover)</SelectItem>
+                  </Select>
                   <Accordion className="px-0" variant="light">
                     <AccordionItem
                       key="advanced"

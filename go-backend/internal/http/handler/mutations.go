@@ -1960,6 +1960,12 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("转发模式仅支持 gost 或 nftables"))
 		return
 	}
+	loadBalanceStrategy, ok := normalizeLoadBalanceStrategyInput(defaultString(asString(req["loadBalanceStrategy"]), asString(req["strategy"])))
+	if !ok {
+		response.WriteJSON(w, response.ErrDefault("负载均衡策略仅支持 round-robin、random、ip_hash、least_conn 或 failover"))
+		return
+	}
+	runtimeStrategy := runtimeLoadBalanceStrategy(loadBalanceStrategy)
 	trafficLimit := normalizeTrafficLimitBytes(req["trafficLimit"], req["trafficLimitGB"])
 	expireTime := normalizeForwardExpireTime(req["expireTime"])
 	speedLimitRuleID := asAnyToInt64Ptr(req["speedLimitRuleId"])
@@ -1969,7 +1975,7 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	forwardID, err := h.repo.CreateForwardTx(userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConn, ipMaxConn, nullableInt(ipSpeedID), proxyProtocol, forwardMode)
+	forwardID, err := h.repo.CreateForwardTx(userID, userName, name, tunnelID, remoteAddr, runtimeStrategy, loadBalanceStrategy, now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConn, ipMaxConn, nullableInt(ipSpeedID), proxyProtocol, forwardMode)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
@@ -2054,6 +2060,27 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 	strategy := strings.TrimSpace(asString(req["strategy"]))
 	if strategy == "" {
 		strategy = forward.Strategy
+	}
+	loadBalanceStrategy := forward.LoadBalanceStrategy
+	if rawLB := strings.TrimSpace(asString(req["loadBalanceStrategy"])); rawLB != "" {
+		var ok bool
+		loadBalanceStrategy, ok = normalizeLoadBalanceStrategyInput(rawLB)
+		if !ok {
+			response.WriteJSON(w, response.ErrDefault("负载均衡策略仅支持 round-robin、random、ip_hash、least_conn 或 failover"))
+			return
+		}
+		strategy = runtimeLoadBalanceStrategy(loadBalanceStrategy)
+	} else if strings.TrimSpace(strategy) != strings.TrimSpace(forward.Strategy) {
+		var ok bool
+		loadBalanceStrategy, ok = normalizeLoadBalanceStrategyInput(strategy)
+		if !ok {
+			response.WriteJSON(w, response.ErrDefault("负载均衡策略仅支持 round-robin、random、ip_hash、least_conn 或 failover"))
+			return
+		}
+		strategy = runtimeLoadBalanceStrategy(loadBalanceStrategy)
+	} else if strings.TrimSpace(loadBalanceStrategy) == "" {
+		loadBalanceStrategy, _ = normalizeLoadBalanceStrategyInput(strategy)
+		strategy = runtimeLoadBalanceStrategy(loadBalanceStrategy)
 	}
 	rawSpeedID, hasSpeedID := req["speedId"]
 	requestedSpeedID := asAnyToInt64Ptr(rawSpeedID)
@@ -2178,7 +2205,7 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, now, newSpeedID, maxConn, ipMaxConn, newIPSpeedID, proxyProtocol, forwardMode); err != nil {
+	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, loadBalanceStrategy, now, newSpeedID, maxConn, ipMaxConn, newIPSpeedID, proxyProtocol, forwardMode); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
@@ -4956,6 +4983,40 @@ func normalizeForwardModeInput(mode string) (string, bool) {
 		return "nftables", true
 	default:
 		return "", false
+	}
+}
+
+func normalizeLoadBalanceStrategyInput(strategy string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case "", "failover", "fifo":
+		return "failover", true
+	case "round-robin", "round":
+		return "round-robin", true
+	case "random", "rand":
+		return "random", true
+	case "ip_hash", "hash":
+		return "ip_hash", true
+	case "least_conn", "least-conn":
+		return "least_conn", true
+	default:
+		return "", false
+	}
+}
+
+func runtimeLoadBalanceStrategy(strategy string) string {
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case "round-robin":
+		return "round"
+	case "random":
+		return "rand"
+	case "ip_hash":
+		return "hash"
+	case "least_conn":
+		// Current gost selector set has no least-connection implementation.
+		// Keep the public setting persisted, and use round-robin at runtime.
+		return "round"
+	default:
+		return "fifo"
 	}
 }
 

@@ -658,6 +658,7 @@ func (h *Handler) syncNftForwardRules(forward *forwardRecord) ([]string, error) 
 	if len(targets) == 0 {
 		return nil, errors.New("forward remote address is empty")
 	}
+	loadBalanceStrategy, _ := normalizeLoadBalanceStrategyInput(defaultString(forward.LoadBalanceStrategy, forward.Strategy))
 	remoteIP, remotePort, err := splitForwardTargetHostPort(targets[0])
 	if err != nil {
 		return nil, err
@@ -675,13 +676,15 @@ func (h *Handler) syncNftForwardRules(forward *forwardRecord) ([]string, error) 
 	for _, fp := range ports {
 		for _, proto := range []string{"tcp", "udp"} {
 			payload := map[string]interface{}{
-				"id":         forward.ID,
-				"proto":      proto,
-				"listenPort": fp.Port,
-				"remoteIP":   remoteIP,
-				"remotePort": remotePort,
-				"maxConn":    maxConn,
-				"ipMaxConn":  forward.IPMaxConn,
+				"id":                  forward.ID,
+				"proto":               proto,
+				"listenPort":          fp.Port,
+				"remoteIP":            remoteIP,
+				"remotePort":          remotePort,
+				"targets":             targets,
+				"loadBalanceStrategy": loadBalanceStrategy,
+				"maxConn":             maxConn,
+				"ipMaxConn":           forward.IPMaxConn,
 			}
 			if strings.TrimSpace(fp.InIP) != "" {
 				payload["listenIP"] = strings.TrimSpace(fp.InIP)
@@ -1876,10 +1879,8 @@ func buildForwardServiceConfigs(baseName string, forward *forwardRecord, tunnel 
 	protocols := []string{"tcp", "udp"}
 	services := make([]map[string]interface{}, 0, 2)
 	targets := splitRemoteTargets(forward.RemoteAddr)
-	strategy := strings.TrimSpace(forward.Strategy)
-	if strategy == "" {
-		strategy = "fifo"
-	}
+	loadBalanceStrategy, _ := normalizeLoadBalanceStrategyInput(defaultString(forward.LoadBalanceStrategy, forward.Strategy))
+	strategy := runtimeLoadBalanceStrategy(loadBalanceStrategy)
 
 	for _, protocol := range protocols {
 		listenerAddr := node.TCPListenAddr
