@@ -18,13 +18,10 @@ git clone https://github.com/diduifei/-flaqi.git /root/flvx && cd /root/flvx && 
 
 **节点端 (Agent)：**
 
-当你在面板上点击“添加节点”时，面板会自动生成带有最新 Token 的 Docker 启动命令。你只需要在中转机上直接复制运行该 Docker 命令即可：
+由于当前版本已经集成 nftables 内核态转发，节点端也必须现场克隆你的魔改源码并本地 Build，不能拉取官方旧镜像。把面板生成的主控 IP 和通讯 Token 填进去后，在中转机上运行：
 
 ```bash
-docker run -d --name flvx-agent --network host --restart always \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  sagit-chu/flvx-agent:latest \
-  -a 你的主控IP:6365 -s 你的通讯Token
+git clone https://github.com/diduifei/-flaqi.git /root/flvx_agent && cd /root/flvx_agent/go-backend && docker build -t flvx-agent-local . && docker run -d --name flvx-agent --network host --restart always --privileged -v /var/run/docker.sock:/var/run/docker.sock flvx-agent-local ./flvx-agent -a 你的主控IP:6365 -s 你的通讯Token
 ```
 
 ## 默认管理账户
