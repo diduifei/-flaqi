@@ -4,6 +4,7 @@ WORKDIR /src
 ENV GOPROXY=https://proxy.golang.org,direct
 
 COPY go.mod go.sum ./
+COPY x/go.mod x/go.sum ./x/
 RUN go mod download
 
 COPY . .
