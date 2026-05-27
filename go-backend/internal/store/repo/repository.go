@@ -405,7 +405,7 @@ func prepareSQLiteLegacyColumns(db *gorm.DB) error {
 	}
 
 	if m.HasTable(&model.Forward{}) {
-		for _, field := range []string{"MaxConn", "IPMaxConn", "IPSpeedID", "ProxyProtocol"} {
+		for _, field := range []string{"MaxConn", "IPMaxConn", "IPSpeedID", "ProxyProtocol", "ForwardMode"} {
 			if m.HasColumn(&model.Forward{}, field) {
 				continue
 			}
@@ -906,11 +906,12 @@ func (r *Repository) ListForwards() ([]map[string]interface{}, error) {
 		IPSpeedID        sql.NullInt64
 		IPSpeedLimitName string
 		ProxyProtocol    int
+		ForwardMode      string
 	}
 
 	var rows []fwdRow
 	err := r.db.Model(&model.Forward{}).
-		Select("forward.id, forward.user_id, forward.user_name, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, forward.max_conn, forward.ip_max_conn, forward.ip_speed_id, COALESCE(ip_speed_limit.name, '') AS ip_speed_limit_name, forward.proxy_protocol").
+		Select("forward.id, forward.user_id, forward.user_name, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, forward.max_conn, forward.ip_max_conn, forward.ip_speed_id, COALESCE(ip_speed_limit.name, '') AS ip_speed_limit_name, forward.proxy_protocol, COALESCE(forward.forward_mode, 'gost') AS forward_mode").
 		Joins("LEFT JOIN tunnel ON tunnel.id = forward.tunnel_id").
 		Joins("LEFT JOIN speed_limit AS ip_speed_limit ON ip_speed_limit.id = forward.ip_speed_id").
 		Order("forward.inx ASC, forward.id ASC").
@@ -936,6 +937,7 @@ func (r *Repository) ListForwards() ([]map[string]interface{}, error) {
 			"maxConn":       row.MaxConn,
 			"ipMaxConn":     row.IPMaxConn,
 			"proxyProtocol": row.ProxyProtocol,
+			"forwardMode":   normalizeForwardMode(row.ForwardMode),
 		}
 		if row.SpeedID.Valid {
 			item["speedId"] = row.SpeedID.Int64
@@ -2137,8 +2139,10 @@ func (r *Repository) exportForwards() ([]model.ForwardBackup, error) {
 			TunnelID: f.TunnelID, RemoteAddr: f.RemoteAddr, Strategy: f.Strategy,
 			InFlow: f.InFlow, OutFlow: f.OutFlow, CreatedTime: f.CreatedTime,
 			UpdatedTime: f.UpdatedTime, Status: f.Status, Inx: f.Inx,
+			MaxConn:       f.MaxConn,
 			IPMaxConn:     f.IPMaxConn,
 			ProxyProtocol: f.ProxyProtocol,
+			ForwardMode:   normalizeForwardMode(f.ForwardMode),
 		}
 		if f.SpeedID.Valid {
 			v := f.SpeedID.Int64
@@ -2586,15 +2590,17 @@ func importForwards(tx *gorm.DB, forwards []model.ForwardBackup, now int64) (int
 			Status:        f.Status,
 			Inx:           f.Inx,
 			SpeedID:       sql.NullInt64{Int64: nullableBackupInt64(f.SpeedID), Valid: f.SpeedID != nil && *f.SpeedID > 0},
+			MaxConn:       f.MaxConn,
 			IPMaxConn:     f.IPMaxConn,
 			IPSpeedID:     sql.NullInt64{Int64: nullableBackupInt64(f.IPSpeedID), Valid: f.IPSpeedID != nil && *f.IPSpeedID > 0},
 			ProxyProtocol: f.ProxyProtocol,
+			ForwardMode:   normalizeForwardMode(f.ForwardMode),
 		}
 		err := tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "id"}},
 			DoUpdates: clause.AssignmentColumns([]string{
 				"user_id", "user_name", "name", "tunnel_id", "remote_addr", "strategy",
-				"in_flow", "out_flow", "updated_time", "status", "inx", "speed_id", "ip_max_conn", "ip_speed_id", "proxy_protocol",
+				"in_flow", "out_flow", "updated_time", "status", "inx", "speed_id", "max_conn", "ip_max_conn", "ip_speed_id", "proxy_protocol", "forward_mode",
 			}),
 		}).Create(&item).Error
 		if err != nil {
@@ -3498,6 +3504,15 @@ func nullableInt64(v sql.NullInt64) interface{} {
 		return v.Int64
 	}
 	return nil
+}
+
+func normalizeForwardMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "nftables":
+		return "nftables"
+	default:
+		return "gost"
+	}
 }
 
 func unixMilliNow() int64 {

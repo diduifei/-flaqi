@@ -166,7 +166,8 @@ jspm_packages/
 .env.production.local
 
 # 构建输出
-dist/
+# vite-frontend/dist is committed so new servers can serve prebuilt assets.
+# dist/
 build/
 
 # ==========================================

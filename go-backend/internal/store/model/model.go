@@ -49,6 +49,7 @@ type Forward struct {
 	IPMaxConn     int           `gorm:"column:ip_max_conn;not null;default:0"`
 	IPSpeedID     sql.NullInt64 `gorm:"column:ip_speed_id"`
 	ProxyProtocol int           `gorm:"column:proxy_protocol;not null;default:0"`
+	ForwardMode   string        `gorm:"column:forward_mode;type:varchar(20);not null;default:'gost'"`
 }
 
 func (Forward) TableName() string { return "forward" }
@@ -449,10 +450,12 @@ type ForwardBackup struct {
 	Status        int                  `json:"status"`
 	Inx           int                  `json:"inx"`
 	SpeedID       *int64               `json:"speedId,omitempty"`
+	MaxConn       int                  `json:"maxConn,omitempty"`
 	IPMaxConn     int                  `json:"ipMaxConn,omitempty"`
 	IPSpeedID     *int64               `json:"ipSpeedId,omitempty"`
 	ForwardPorts  *[]ForwardPortBackup `json:"forwardPorts,omitempty"`
 	ProxyProtocol int                  `json:"proxyProtocol"`
+	ForwardMode   string               `json:"forwardMode,omitempty"`
 }
 
 type ForwardPortBackup struct {
@@ -554,6 +557,7 @@ type ForwardRecord struct {
 	IPMaxConn     int
 	IPSpeedID     sql.NullInt64
 	ProxyProtocol int
+	ForwardMode   string
 }
 
 // TunnelRecord is a minimal tunnel view used by control plane.

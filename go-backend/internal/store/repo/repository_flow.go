@@ -127,12 +127,14 @@ func (r *Repository) ListActiveForwardsByUser(userID int64) ([]model.ForwardReco
 			IPMaxConn:     f.IPMaxConn,
 			IPSpeedID:     f.IPSpeedID,
 			ProxyProtocol: f.ProxyProtocol,
+			ForwardMode:   normalizeForwardMode(f.ForwardMode),
 		})
 	}
 	for i := range rows {
 		if strings.TrimSpace(rows[i].Strategy) == "" {
 			rows[i].Strategy = "fifo"
 		}
+		rows[i].ForwardMode = normalizeForwardMode(rows[i].ForwardMode)
 	}
 	return rows, nil
 }
@@ -162,12 +164,14 @@ func (r *Repository) ListActiveForwardsByUserTunnel(userID, tunnelID int64) ([]m
 			IPMaxConn:     f.IPMaxConn,
 			IPSpeedID:     f.IPSpeedID,
 			ProxyProtocol: f.ProxyProtocol,
+			ForwardMode:   normalizeForwardMode(f.ForwardMode),
 		})
 	}
 	for i := range rows {
 		if strings.TrimSpace(rows[i].Strategy) == "" {
 			rows[i].Strategy = "fifo"
 		}
+		rows[i].ForwardMode = normalizeForwardMode(rows[i].ForwardMode)
 	}
 	return rows, nil
 }
@@ -197,12 +201,14 @@ func (r *Repository) ListForwardsByUserAndTunnel(userID, tunnelID int64) ([]mode
 			IPMaxConn:     f.IPMaxConn,
 			IPSpeedID:     f.IPSpeedID,
 			ProxyProtocol: f.ProxyProtocol,
+			ForwardMode:   normalizeForwardMode(f.ForwardMode),
 		})
 	}
 	for i := range rows {
 		if strings.TrimSpace(rows[i].Strategy) == "" {
 			rows[i].Strategy = "fifo"
 		}
+		rows[i].ForwardMode = normalizeForwardMode(rows[i].ForwardMode)
 	}
 	return rows, nil
 }
@@ -233,10 +239,12 @@ func (r *Repository) GetForwardRecord(forwardID int64) (*model.ForwardRecord, er
 		IPMaxConn:     f.IPMaxConn,
 		IPSpeedID:     f.IPSpeedID,
 		ProxyProtocol: f.ProxyProtocol,
+		ForwardMode:   normalizeForwardMode(f.ForwardMode),
 	}
 	if strings.TrimSpace(fr.Strategy) == "" {
 		fr.Strategy = "fifo"
 	}
+	fr.ForwardMode = normalizeForwardMode(fr.ForwardMode)
 	return &fr, nil
 }
 

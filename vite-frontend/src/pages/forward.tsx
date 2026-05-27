@@ -129,6 +129,7 @@ interface Forward {
   ipSpeedId?: number | null;
   ipSpeedLimitName?: string;
   proxyProtocol?: number;
+  forwardMode?: string;
 }
 
 interface Tunnel {
@@ -167,6 +168,7 @@ interface ForwardForm {
   ipSpeedId: number | null;
   maxConn?: number;
   proxyProtocol?: number;
+  forwardMode?: "gost" | "nftables";
 }
 
 interface ForwardUserGroup {
@@ -598,6 +600,8 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
       typeof forward.proxyProtocol === "number"
         ? forward.proxyProtocol
         : undefined,
+    forwardMode:
+      forward.forwardMode === "nftables" ? "nftables" : "gost",
     serviceRunning: forward.status === 1,
   }));
 };
@@ -1335,6 +1339,7 @@ export default function ForwardPage() {
     ipSpeedId: null,
     maxConn: 0,
     proxyProtocol: 0,
+    forwardMode: "gost",
   });
   const [inIpTouched, setInIpTouched] = useState(false);
 
@@ -2086,15 +2091,23 @@ export default function ForwardPage() {
         .filter((addr) => addr);
       const ipv4Pattern =
         /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?):\d+$/;
+      const ipv4OnlyPattern =
+        /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
       const ipv6FullPattern =
         /^\[((([0-9a-fA-F]{1,4}:){7}([0-9a-fA-F]{1,4}|:))|(([0-9a-fA-F]{1,4}:){6}(:[0-9a-fA-F]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){5}(((:[0-9a-fA-F]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9a-fA-F]{1,4}:){4}(((:[0-9a-fA-F]{1,4}){1,3})|((:[0-9a-fA-F]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){3}(((:[0-9a-fA-F]{1,4}){1,4})|((:[0-9a-fA-F]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){2}(((:[0-9a-fA-F]{1,4}){1,5})|((:[0-9a-fA-F]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9a-fA-F]{1,4}:){1}(((:[0-9a-fA-F]{1,4}){1,6})|((:[0-9a-fA-F]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9a-fA-F]{1,4}){1,7})|((:[0-9a-fA-F]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))\]:\d+$/;
+      const ipv6OnlyPattern = /^\[?[0-9a-fA-F:]+\]?$/;
       const domainPattern =
         /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*:\d+$/;
 
       for (let i = 0; i < addresses.length; i++) {
         const addr = addresses[i];
+        const nftablesPureIP =
+          form.forwardMode === "nftables" &&
+          (ipv4OnlyPattern.test(addr) ||
+            (addr.includes(":") && ipv6OnlyPattern.test(addr)));
 
         if (
+          !nftablesPureIP &&
           !ipv4Pattern.test(addr) &&
           !ipv6FullPattern.test(addr) &&
           !domainPattern.test(addr)
@@ -2125,7 +2138,9 @@ export default function ForwardPage() {
       speedId: null,
       ipMaxConn: 0,
       ipSpeedId: null,
+      maxConn: 0,
       proxyProtocol: 0,
+      forwardMode: "gost",
     });
     setErrors({});
     setModalOpen(true);
@@ -2150,6 +2165,7 @@ export default function ForwardPage() {
       ipSpeedId: normalizeSpeedId(forward.ipSpeedId),
       maxConn: forward.maxConn ?? 0,
       proxyProtocol: forward.proxyProtocol ?? 0,
+      forwardMode: forward.forwardMode === "nftables" ? "nftables" : "gost",
     });
     setErrors({});
     setModalOpen(true);
@@ -2284,6 +2300,7 @@ export default function ForwardPage() {
           ...(isAdmin ? { ipSpeedId: normalizedIPSpeedId } : {}),
           maxConn: form.maxConn,
           proxyProtocol: form.proxyProtocol,
+          forwardMode: form.forwardMode || "gost",
         };
 
         res = await updateForward(updateData);
@@ -2300,6 +2317,7 @@ export default function ForwardPage() {
           ...(isAdmin ? { ipSpeedId: normalizedIPSpeedId } : {}),
           maxConn: form.maxConn,
           proxyProtocol: form.proxyProtocol,
+          forwardMode: form.forwardMode || "gost",
         };
 
         res = await createForward(createData);
@@ -4926,6 +4944,28 @@ export default function ForwardPage() {
                       }
                     >
                       <div className="space-y-4 pb-2">
+                        <Select
+                          description="选择规则运行时：gost 适合多协议代理转发，nftables 使用 Linux 内核态 NAT 转发。"
+                          label="转发模式"
+                          selectedKeys={[form.forwardMode || "gost"]}
+                          variant="bordered"
+                          onSelectionChange={(keys) => {
+                            const selectedKey = Array.from(keys)[0] as
+                              | "gost"
+                              | "nftables"
+                              | undefined;
+
+                            setForm((prev) => ({
+                              ...prev,
+                              forwardMode: selectedKey || "gost",
+                            }));
+                          }}
+                        >
+                          <SelectItem key="gost">GOST 用户态转发</SelectItem>
+                          <SelectItem key="nftables">
+                            nftables 内核态转发
+                          </SelectItem>
+                        </Select>
                         <Input
                           description="大于 0 时优先于用户全局限制；0 或空表示使用用户全局限制，用户也为 0 时不限制。"
                           label="最大连接数"

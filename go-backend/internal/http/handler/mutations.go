@@ -1122,6 +1122,9 @@ func (h *Handler) deleteForwardServicesOnNodeBatch(forward *forwardRecord, nodeI
 	if h == nil || forward == nil || nodeID <= 0 {
 		return errors.New("invalid forward service cleanup context")
 	}
+	if isNftForwardMode(forward.ForwardMode) {
+		return h.deleteNftForwardRulesOnNode(forward, nodeID)
+	}
 	bases, err := h.forwardServiceBaseCandidates(forward)
 	if err != nil {
 		return err
@@ -1944,8 +1947,13 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 		ipMaxConn = 0
 	}
 	proxyProtocol := asInt(req["proxyProtocol"], 0)
+	forwardMode, ok := normalizeForwardModeInput(asString(req["forwardMode"]))
+	if !ok {
+		response.WriteJSON(w, response.ErrDefault("转发模式仅支持 gost 或 nftables"))
+		return
+	}
 
-	forwardID, err := h.repo.CreateForwardTx(userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConn, ipMaxConn, nullableInt(ipSpeedID), proxyProtocol)
+	forwardID, err := h.repo.CreateForwardTx(userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConn, ipMaxConn, nullableInt(ipSpeedID), proxyProtocol, forwardMode)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
@@ -2123,8 +2131,13 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 		ipMaxConn = 0
 	}
 	proxyProtocol := asInt(req["proxyProtocol"], forward.ProxyProtocol)
+	forwardMode, ok := normalizeForwardModeInput(defaultString(asString(req["forwardMode"]), forward.ForwardMode))
+	if !ok {
+		response.WriteJSON(w, response.ErrDefault("转发模式仅支持 gost 或 nftables"))
+		return
+	}
 
-	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, now, newSpeedID, maxConn, ipMaxConn, newIPSpeedID, proxyProtocol); err != nil {
+	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, now, newSpeedID, maxConn, ipMaxConn, newIPSpeedID, proxyProtocol, forwardMode); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
@@ -2147,6 +2160,11 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	warnings := make([]string, 0)
+	if !strings.EqualFold(strings.TrimSpace(forward.ForwardMode), strings.TrimSpace(updatedForward.ForwardMode)) {
+		if err := h.controlForwardServices(forward, "DeleteService", true); err != nil {
+			warnings = append(warnings, fmt.Sprintf("清理旧转发模式运行时失败: %v", err))
+		}
+	}
 	if tunnelChanged && len(keptNodeIDs) > 0 {
 		for _, nodeID := range keptNodeIDs {
 			if delErr := h.deleteForwardServicesOnNodeBatch(forward, nodeID); delErr != nil {
@@ -4452,7 +4470,7 @@ func (h *Handler) rollbackForwardMutation(oldForward *forwardRecord, oldPorts []
 	h.repo.RollbackForwardFields(
 		oldForward.ID, oldForward.UserID, oldForward.UserName, oldForward.Name,
 		oldForward.TunnelID, oldForward.RemoteAddr, oldForward.Strategy, oldForward.Status,
-		oldForward.SpeedID, oldForward.MaxConn, oldForward.IPMaxConn, oldForward.IPSpeedID, oldForward.ProxyProtocol,
+		oldForward.SpeedID, oldForward.MaxConn, oldForward.IPMaxConn, oldForward.IPSpeedID, oldForward.ProxyProtocol, oldForward.ForwardMode,
 		time.Now().UnixMilli(),
 	)
 
@@ -4855,6 +4873,17 @@ func defaultString(v, def string) string {
 		return def
 	}
 	return v
+}
+
+func normalizeForwardModeInput(mode string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "gost":
+		return "gost", true
+	case "nftables":
+		return "nftables", true
+	default:
+		return "", false
+	}
 }
 
 func randomToken(n int) string {

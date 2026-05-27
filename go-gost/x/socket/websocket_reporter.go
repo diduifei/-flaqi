@@ -837,6 +837,12 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	case "DeleteCLimiters":
 		err = w.handleDeleteCLimiter(cmd.Data)
 		response.Type = "DeleteCLimitersResponse"
+	case "nftables:apply":
+		err = w.handleNftablesApply(cmd.Data)
+		response.Type = "nftables:apply:response"
+	case "nftables:delete":
+		err = w.handleNftablesDelete(cmd.Data)
+		response.Type = "nftables:delete:response"
 
 	// TCP Ping 诊断命令（只读，不需要保存配置）
 	case "TcpPing":

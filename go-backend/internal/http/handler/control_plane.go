@@ -235,6 +235,9 @@ func (h *Handler) syncForwardServicesWithWarnings(forward *forwardRecord, method
 	if h == nil || forward == nil {
 		return nil, errors.New("invalid forward sync context")
 	}
+	if isNftForwardMode(forward.ForwardMode) {
+		return h.syncNftForwardRules(forward)
+	}
 
 	tunnel, err := h.getTunnelRecord(forward.TunnelID)
 	if err != nil {
@@ -452,6 +455,9 @@ func (h *Handler) deleteForwardServicesOnNode(forward *forwardRecord, nodeID int
 	if h == nil || forward == nil {
 		return errors.New("invalid forward delete context")
 	}
+	if isNftForwardMode(forward.ForwardMode) {
+		return h.deleteNftForwardRulesOnNode(forward, nodeID)
+	}
 	bases, err := h.forwardServiceBaseCandidates(forward)
 	if err != nil {
 		return err
@@ -522,6 +528,13 @@ func buildForwardServiceDeleteNames(bases []string) []string {
 func (h *Handler) controlForwardServices(forward *forwardRecord, commandType string, tolerateNotFound bool) error {
 	if h == nil || forward == nil {
 		return errors.New("invalid forward control context")
+	}
+	if isNftForwardMode(forward.ForwardMode) {
+		if strings.EqualFold(strings.TrimSpace(commandType), "ResumeService") {
+			_, err := h.syncNftForwardRules(forward)
+			return err
+		}
+		return h.deleteNftForwardRules(forward, tolerateNotFound)
 	}
 	ports, err := h.listForwardPorts(forward.ID)
 	if err != nil {
@@ -614,6 +627,113 @@ func (h *Handler) controlForwardServicesOnNode(nodeID int64, bases []string, com
 		_, err := h.sendNodeCommand(nodeID, commandType, payload, false, false)
 		return err
 	})
+}
+
+func isNftForwardMode(mode string) bool {
+	return strings.EqualFold(strings.TrimSpace(mode), "nftables")
+}
+
+func (h *Handler) syncNftForwardRules(forward *forwardRecord) ([]string, error) {
+	ports, err := h.listForwardPorts(forward.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(ports) == 0 {
+		return nil, errors.New("forward ingress port does not exist")
+	}
+	targets := splitRemoteTargets(forward.RemoteAddr)
+	if len(targets) == 0 {
+		return nil, errors.New("forward remote address is empty")
+	}
+	remoteIP, remotePort, err := splitForwardTargetHostPort(targets[0])
+	if err != nil {
+		return nil, err
+	}
+	maxConn := forward.MaxConn
+	if maxConn <= 0 {
+		if user, err := h.repo.GetUserByID(forward.UserID); err != nil {
+			return nil, err
+		} else if user != nil && user.MaxConn > 0 {
+			maxConn = user.MaxConn
+		}
+	}
+
+	warnings := make([]string, 0)
+	for _, fp := range ports {
+		for _, proto := range []string{"tcp", "udp"} {
+			payload := map[string]interface{}{
+				"id":         forward.ID,
+				"proto":      proto,
+				"listenPort": fp.Port,
+				"remoteIP":   remoteIP,
+				"remotePort": remotePort,
+				"maxConn":    maxConn,
+				"ipMaxConn":  forward.IPMaxConn,
+			}
+			if strings.TrimSpace(fp.InIP) != "" {
+				payload["listenIP"] = strings.TrimSpace(fp.InIP)
+			}
+			if _, err := h.sendNodeCommand(fp.NodeID, "nftables:apply", payload, true, false); err != nil {
+				if isNodeOfflineOrTimeoutError(err) {
+					warnings = append(warnings, fmt.Sprintf("节点 %d 不在线，已跳过 nftables 下发", fp.NodeID))
+					continue
+				}
+				return warnings, fmt.Errorf("节点 %d nftables 下发失败: %w", fp.NodeID, err)
+			}
+		}
+	}
+	return warnings, nil
+}
+
+func (h *Handler) deleteNftForwardRules(forward *forwardRecord, tolerateNotFound bool) error {
+	ports, err := h.listForwardPorts(forward.ID)
+	if err != nil {
+		return err
+	}
+	seen := make(map[int64]struct{}, len(ports))
+	for _, fp := range ports {
+		if _, ok := seen[fp.NodeID]; ok {
+			continue
+		}
+		seen[fp.NodeID] = struct{}{}
+		if err := h.deleteNftForwardRulesOnNode(forward, fp.NodeID); err != nil {
+			if isNodeOfflineOrTimeoutError(err) {
+				continue
+			}
+			if tolerateNotFound && isNotFoundError(err) {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *Handler) deleteNftForwardRulesOnNode(forward *forwardRecord, nodeID int64) error {
+	payload := map[string]interface{}{"id": forward.ID}
+	_, err := h.sendNodeCommand(nodeID, "nftables:delete", payload, false, true)
+	return err
+}
+
+func splitForwardTargetHostPort(target string) (string, int, error) {
+	normalized := normalizeServerAddressInput(target)
+	host, portText, err := net.SplitHostPort(processServerAddress(target))
+	if err != nil {
+		if !strings.Contains(err.Error(), "missing port in address") {
+			return "", 0, err
+		}
+		host = strings.Trim(normalized, "[]")
+		portText = "80"
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port <= 0 || port > 65535 {
+		return "", 0, fmt.Errorf("invalid remote port %q", portText)
+	}
+	host = strings.Trim(host, "[]")
+	if net.ParseIP(host) == nil {
+		return "", 0, errors.New("nftables forward mode requires a valid IP remote address")
+	}
+	return host, port, nil
 }
 
 func controlForwardServiceCommand(bases []string, commandType string, send func(name string) error) (bool, error, error) {

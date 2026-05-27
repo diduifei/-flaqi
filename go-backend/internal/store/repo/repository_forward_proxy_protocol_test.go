@@ -160,7 +160,7 @@ func TestForwardRepositoryPersistsPerIPLimits(t *testing.T) {
 	defer r.Close()
 
 	now := time.Now().UnixMilli()
-	forwardID, err := r.CreateForwardTx(1, "admin", "per-ip-forward", 2, "1.1.1.1:443", "fifo", now, 1, []int64{3}, 24000, "", nil, 0, 5, int64(21), 0)
+	forwardID, err := r.CreateForwardTx(1, "admin", "per-ip-forward", 2, "1.1.1.1:443", "fifo", now, 1, []int64{3}, 24000, "", nil, 0, 5, int64(21), 0, "gost")
 	if err != nil {
 		t.Fatalf("CreateForwardTx: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestForwardRepositoryPersistsPerIPLimits(t *testing.T) {
 		t.Fatalf("expected created ipSpeedId 21, got %+v", record.IPSpeedID)
 	}
 
-	if err := r.UpdateForward(forwardID, "per-ip-forward", 2, "2.2.2.2:443", "fifo", now+1, nil, 0, 9, int64(22), 0); err != nil {
+	if err := r.UpdateForward(forwardID, "per-ip-forward", 2, "2.2.2.2:443", "fifo", now+1, nil, 0, 9, int64(22), 0, "gost"); err != nil {
 		t.Fatalf("UpdateForward: %v", err)
 	}
 	record, err = r.GetForwardRecord(forwardID)
@@ -224,15 +224,15 @@ func TestRollbackForwardFieldsRestoresPerIPLimits(t *testing.T) {
 	defer r.Close()
 
 	now := time.Now().UnixMilli()
-	forwardID, err := r.CreateForwardTx(1, "admin", "rollback-per-ip-forward", 2, "1.1.1.1:443", "fifo", now, 1, nil, 0, "", nil, 7, 5, int64(21), 2)
+	forwardID, err := r.CreateForwardTx(1, "admin", "rollback-per-ip-forward", 2, "1.1.1.1:443", "fifo", now, 1, nil, 0, "", nil, 7, 5, int64(21), 2, "gost")
 	if err != nil {
 		t.Fatalf("CreateForwardTx: %v", err)
 	}
-	if err := r.UpdateForward(forwardID, "rollback-per-ip-forward", 2, "2.2.2.2:443", "fifo", now+1, nil, 0, 0, nil, 0); err != nil {
+	if err := r.UpdateForward(forwardID, "rollback-per-ip-forward", 2, "2.2.2.2:443", "fifo", now+1, nil, 0, 0, nil, 0, "gost"); err != nil {
 		t.Fatalf("UpdateForward: %v", err)
 	}
 
-	r.RollbackForwardFields(forwardID, 1, "admin", "rollback-per-ip-forward", 2, "1.1.1.1:443", "fifo", 1, nil, 7, 5, int64(21), 2, now+2)
+	r.RollbackForwardFields(forwardID, 1, "admin", "rollback-per-ip-forward", 2, "1.1.1.1:443", "fifo", 1, nil, 7, 5, int64(21), 2, "gost", now+2)
 
 	record, err := r.GetForwardRecord(forwardID)
 	if err != nil {

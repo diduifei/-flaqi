@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"log"
 	"net/http"
@@ -17,7 +19,12 @@ import (
 func main() {
 	cfg := config.FromEnv()
 	if cfg.JWTSecret == "" {
-		log.Println("warning: JWT_SECRET is empty")
+		secret, err := generateJWTSecret()
+		if err != nil {
+			log.Fatalf("JWT_SECRET is empty and random secret generation failed: %v", err)
+		}
+		cfg.JWTSecret = secret
+		log.Println("warning: JWT_SECRET is empty; generated an ephemeral secret for this process")
 	}
 	log.Printf("starting go-backend on %s (db=%s)", cfg.Addr, cfg.DBPath)
 
@@ -48,4 +55,12 @@ func main() {
 	if err := a.Shutdown(ctx); err != nil {
 		log.Fatalf("shutdown failed: %v", err)
 	}
+}
+
+func generateJWTSecret() (string, error) {
+	var buf [32]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf[:]), nil
 }

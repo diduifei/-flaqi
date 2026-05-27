@@ -163,7 +163,7 @@ func TestOpenBackfillsSQLiteLegacyForwardColumns(t *testing.T) {
 	t.Cleanup(func() { _ = r.Close() })
 
 	m := r.DB().Migrator()
-	for _, field := range []string{"MaxConn", "IPMaxConn", "IPSpeedID", "ProxyProtocol"} {
+	for _, field := range []string{"MaxConn", "IPMaxConn", "IPSpeedID", "ProxyProtocol", "ForwardMode"} {
 		if !m.HasColumn(&model.Forward{}, field) {
 			t.Fatalf("expected forward.%s column to exist", field)
 		}

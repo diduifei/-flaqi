@@ -78,6 +78,7 @@ export interface ForwardApiItem {
   ipSpeedLimitName?: string;
   maxConn?: number;
   proxyProtocol?: number;
+  forwardMode?: string;
   inx?: number;
   [key: string]: unknown;
 }
@@ -391,6 +392,7 @@ export interface ForwardMutationPayload {
   ipSpeedId?: number | null;
   maxConn?: number;
   proxyProtocol?: number;
+  forwardMode?: string;
 }
 
 export interface SpeedLimitMutationPayload {

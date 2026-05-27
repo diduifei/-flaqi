@@ -8,7 +8,8 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
+# dist is committed so fresh servers can serve the prebuilt frontend directly.
+# dist
 dist-ssr
 *.local
 

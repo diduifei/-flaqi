@@ -574,6 +574,39 @@ func TestBuildForwardServiceConfigsUsesRuntimeLimiterNames(t *testing.T) {
 	}
 }
 
+func TestSplitForwardTargetHostPortDefaultsPureIPToHTTPPort(t *testing.T) {
+	tests := []struct {
+		name     string
+		target   string
+		wantHost string
+		wantPort int
+	}{
+		{name: "ipv4 with port", target: "82.153.47.104:443", wantHost: "82.153.47.104", wantPort: 443},
+		{name: "ipv4 without port", target: "82.153.47.104", wantHost: "82.153.47.104", wantPort: 80},
+		{name: "ipv6 with port", target: "[2001:db8::10]:8443", wantHost: "2001:db8::10", wantPort: 8443},
+		{name: "ipv6 without port", target: "2001:db8::10", wantHost: "2001:db8::10", wantPort: 80},
+		{name: "url input", target: "https://82.153.47.104:9443/path", wantHost: "82.153.47.104", wantPort: 9443},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			host, port, err := splitForwardTargetHostPort(tt.target)
+			if err != nil {
+				t.Fatalf("splitForwardTargetHostPort: %v", err)
+			}
+			if host != tt.wantHost || port != tt.wantPort {
+				t.Fatalf("expected %s:%d, got %s:%d", tt.wantHost, tt.wantPort, host, port)
+			}
+		})
+	}
+}
+
+func TestSplitForwardTargetHostPortRejectsDomain(t *testing.T) {
+	if _, _, err := splitForwardTargetHostPort("example.com:443"); err == nil {
+		t.Fatalf("expected domain target to be rejected")
+	}
+}
+
 func intPtr(v int) *int { return &v }
 
 func TestProcessServerAddress_StripsURLSchemeAndPath(t *testing.T) {

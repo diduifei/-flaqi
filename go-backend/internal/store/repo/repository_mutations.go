@@ -712,7 +712,7 @@ func (r *Repository) GetMinForwardPort(forwardID int64) sql.NullInt64 {
 	return p
 }
 
-func (r *Repository) UpdateForward(id int64, name string, tunnelID int64, remoteAddr, strategy string, now int64, speedID interface{}, maxConn int, ipMaxConn int, ipSpeedID interface{}, proxyProtocol int) error {
+func (r *Repository) UpdateForward(id int64, name string, tunnelID int64, remoteAddr, strategy string, now int64, speedID interface{}, maxConn int, ipMaxConn int, ipSpeedID interface{}, proxyProtocol int, forwardMode string) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
@@ -728,6 +728,7 @@ func (r *Repository) UpdateForward(id int64, name string, tunnelID int64, remote
 			"ip_max_conn":    ipMaxConn,
 			"ip_speed_id":    nullInt64FromInterface(ipSpeedID),
 			"proxy_protocol": proxyProtocol,
+			"forward_mode":   normalizeForwardMode(forwardMode),
 			"updated_time":   now,
 		}).Error
 }
@@ -802,7 +803,7 @@ func (r *Repository) UpdateForwardPortBindIP(forwardID, nodeID int64, port int, 
 		Update("in_ip", sql.NullString{String: inIP, Valid: strings.TrimSpace(inIP) != ""}).Error
 }
 
-func (r *Repository) RollbackForwardFields(id, userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, status int, speedID interface{}, maxConn int, ipMaxConn int, ipSpeedID interface{}, proxyProtocol int, now int64) {
+func (r *Repository) RollbackForwardFields(id, userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, status int, speedID interface{}, maxConn int, ipMaxConn int, ipSpeedID interface{}, proxyProtocol int, forwardMode string, now int64) {
 	if r == nil || r.db == nil {
 		return
 	}
@@ -821,6 +822,7 @@ func (r *Repository) RollbackForwardFields(id, userID int64, userName, name stri
 			"ip_max_conn":    ipMaxConn,
 			"ip_speed_id":    nullInt64FromInterface(ipSpeedID),
 			"proxy_protocol": proxyProtocol,
+			"forward_mode":   normalizeForwardMode(forwardMode),
 			"updated_time":   now,
 		}).Error
 }
@@ -1281,7 +1283,7 @@ func (r *Repository) EnsureUserTunnelGrant(userID, tunnelID int64) (int64, bool,
 	return ut.ID, true, nil
 }
 
-func (r *Repository) CreateForwardTx(userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, now int64, inx int, entryNodeIDs []int64, port int, inIp string, speedID interface{}, maxConn int, ipMaxConn int, ipSpeedID interface{}, proxyProtocol int) (int64, error) {
+func (r *Repository) CreateForwardTx(userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, now int64, inx int, entryNodeIDs []int64, port int, inIp string, speedID interface{}, maxConn int, ipMaxConn int, ipSpeedID interface{}, proxyProtocol int, forwardMode string) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, errors.New("repository not initialized")
 	}
@@ -1305,6 +1307,7 @@ func (r *Repository) CreateForwardTx(userID int64, userName, name string, tunnel
 			IPMaxConn:     ipMaxConn,
 			IPSpeedID:     nullInt64FromInterface(ipSpeedID),
 			ProxyProtocol: proxyProtocol,
+			ForwardMode:   normalizeForwardMode(forwardMode),
 		}
 		if err := tx.Create(&fwd).Error; err != nil {
 			return err

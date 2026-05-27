@@ -58,12 +58,14 @@ func (r *Repository) ListForwardsByTunnelTx(tx *gorm.DB, tunnelID int64) ([]mode
 			IPMaxConn:     f.IPMaxConn,
 			IPSpeedID:     f.IPSpeedID,
 			ProxyProtocol: f.ProxyProtocol,
+			ForwardMode:   normalizeForwardMode(f.ForwardMode),
 		})
 	}
 	for i := range rows {
 		if strings.TrimSpace(rows[i].Strategy) == "" {
 			rows[i].Strategy = "fifo"
 		}
+		rows[i].ForwardMode = normalizeForwardMode(rows[i].ForwardMode)
 	}
 	return rows, nil
 }
