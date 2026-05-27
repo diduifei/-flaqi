@@ -33,7 +33,6 @@ RUN apk add --no-cache \
     iproute2 \
     curl \
     wget \
-    iptables-nft \
     docker-cli \
     docker-cli-compose
 
