@@ -68,7 +68,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./go-backend
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.panel_meta.outputs.tags }}
           labels: ${{ steps.panel_meta.outputs.labels }}
@@ -77,7 +77,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./vite-frontend
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.frontend_meta.outputs.tags }}
           labels: ${{ steps.frontend_meta.outputs.labels }}
@@ -86,7 +86,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./go-gost
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.agent_meta.outputs.tags }}
           labels: ${{ steps.agent_meta.outputs.labels }}
