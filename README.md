@@ -10,12 +10,11 @@
 curl -L https://raw.githubusercontent.com/diduifei/-flaqi/main/panel_install.sh -o panel_install.sh && bash panel_install.sh
 ```
 
-默认镜像：
+面板端默认镜像：
 
 ```text
 diduigege/flvx-panel:latest
 diduigege/flvx-frontend:latest
-diduigege/flvx-agent:latest
 ```
 
 ## 节点端快速部署
@@ -23,10 +22,16 @@ diduigege/flvx-agent:latest
 在面板中添加节点后，复制节点 Token，并在中转机上运行：
 
 ```bash
-curl -L https://raw.githubusercontent.com/diduifei/-flaqi/main/agent_install.sh -o agent_install.sh && bash agent_install.sh -a 你的主控IP:6365 -s 你的通讯Token
+curl -fsSL https://raw.githubusercontent.com/diduifei/-flaqi/main/agent_install.sh -o agent_install.sh && chmod +x agent_install.sh && bash agent_install.sh -a 你的主控IP:6365 -s 你的通讯Token
 ```
 
-节点脚本会自动安装 Docker，清理旧 `flvx-agent` 容器，直接拉取 `diduigege/flvx-agent:latest` 镜像运行，并在启动后执行健康检查。
+节点脚本为纯二进制裸机版，不依赖 Docker。它会自动识别 `amd64` / `arm64` 架构，从 GitHub Releases 的 `latest-agent` 下载对应的 `flvx-agent-linux-*` 文件到 `/usr/local/bin/flvx-agent`，创建 systemd 服务并自动启动。
+
+节点日志查看命令：
+
+```bash
+journalctl -u flvx-agent -f
+```
 
 ## 默认管理账户
 
