@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"database/sql"
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"go-backend/internal/store/repo"
 )
@@ -56,6 +58,35 @@ func TestBuildForwardServiceBaseWithResolvedUserTunnelFallbackToZero(t *testing.
 	got := buildForwardServiceBaseWithResolvedUserTunnel(12, 34, 0)
 	if got != "12_34_0" {
 		t.Fatalf("expected 12_34_0, got %s", got)
+	}
+}
+
+func TestControlForwardServicesRejectsExpiredResumeBeforeNodeWork(t *testing.T) {
+	h := &Handler{}
+	forward := &forwardRecord{
+		ID:         12,
+		Status:     0,
+		ExpireTime: sql.NullInt64{Int64: time.Now().Add(-time.Hour).UnixMilli(), Valid: true},
+	}
+
+	err := h.controlForwardServices(forward, "ResumeService", false)
+	if err == nil {
+		t.Fatalf("expected expired resume to be rejected")
+	}
+}
+
+func TestControlForwardServicesRejectsTrafficExhaustedResumeBeforeNodeWork(t *testing.T) {
+	h := &Handler{}
+	forward := &forwardRecord{
+		ID:           12,
+		Status:       0,
+		TrafficLimit: 100,
+		TrafficUsed:  100,
+	}
+
+	err := h.controlForwardServices(forward, "ResumeService", false)
+	if err == nil {
+		t.Fatalf("expected traffic-exhausted resume to be rejected")
 	}
 }
 

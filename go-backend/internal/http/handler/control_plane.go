@@ -538,8 +538,12 @@ func (h *Handler) controlForwardServices(forward *forwardRecord, commandType str
 	if h == nil || forward == nil {
 		return errors.New("invalid forward control context")
 	}
+	normalizedCommand := strings.TrimSpace(commandType)
+	if strings.EqualFold(normalizedCommand, "ResumeService") && shouldPauseForwardByAdvancedLimit(forward, time.Now().UnixMilli()) {
+		return errors.New("forward rule is expired or traffic limit has been exhausted")
+	}
 	if isNftForwardMode(forward.ForwardMode) {
-		if strings.EqualFold(strings.TrimSpace(commandType), "ResumeService") {
+		if strings.EqualFold(normalizedCommand, "ResumeService") {
 			_, err := h.syncNftForwardRules(forward)
 			return err
 		}
