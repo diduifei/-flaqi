@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"sync"
 	"time"
@@ -576,6 +577,10 @@ type Config struct {
 
 func (c *Config) Load() error {
 	if err := v.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if errors.As(err, &notFound) {
+			return nil
+		}
 		return err
 	}
 	SetPersistPath(v.ConfigFileUsed())
