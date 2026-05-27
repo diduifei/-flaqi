@@ -476,13 +476,6 @@ func (h *Handler) nodeInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channel := normalizeReleaseChannel(req.Channel)
-	version, err := resolveLatestReleaseByChannel(channel)
-	if err != nil {
-		response.WriteJSON(w, response.Err(-2, fmt.Sprintf("获取最新%s失败: %v", releaseChannelLabel(channel), err)))
-		return
-	}
-
 	secret, err := h.repo.GetNodeSecret(req.ID)
 	if err != nil {
 		response.WriteJSON(w, response.ErrDefault("节点不存在"))
@@ -497,17 +490,20 @@ func (h *Handler) nodeInstall(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	enabled, proxyURL := h.getGithubProxyConfig()
+	response.WriteJSON(w, response.OK(buildLocalAgentInstallCommand(panelAddr, secret)))
+}
 
-	var cmd string
-	if enabled {
-		cmd = fmt.Sprintf("curl -L %s/https://github.com/%s/releases/download/%s/install.sh -o ./install.sh && chmod +x ./install.sh && PROXY_ENABLED=true PROXY_URL=%s VERSION=%s ./install.sh -a %s -s %s",
-			proxyURL, githubRepo, version, proxyURL, version, processServerAddress(panelAddr), secret)
-	} else {
-		cmd = fmt.Sprintf("curl -L https://github.com/%s/releases/download/%s/install.sh -o ./install.sh && chmod +x ./install.sh && PROXY_ENABLED=false VERSION=%s ./install.sh -a %s -s %s",
-			githubRepo, version, version, processServerAddress(panelAddr), secret)
+func buildLocalAgentInstallCommand(panelAddr, secret string) string {
+	return fmt.Sprintf("apt update && apt install -y git curl && curl -fsSL https://get.docker.com | bash && systemctl enable --now docker && rm -rf /root/flvx_agent && git clone https://github.com/diduifei/-flaqi.git /root/flvx_agent && cd /root/flvx_agent/go-backend && docker build -t flvx-agent-local . && docker run -d --name flvx-agent --network host --restart always --privileged -v /var/run/docker.sock:/var/run/docker.sock flvx-agent-local ./flvx-agent -a %s:6365 -s %s",
+		normalizePanelInstallHost(panelAddr), secret)
+}
+
+func normalizePanelInstallHost(panelAddr string) string {
+	addr := processServerAddress(panelAddr)
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return strings.Trim(host, "[]")
 	}
-	response.WriteJSON(w, response.OK(cmd))
+	return strings.Trim(addr, "[]")
 }
 
 func (h *Handler) nodeUpdateOrder(w http.ResponseWriter, r *http.Request) {
