@@ -1361,13 +1361,22 @@ export default function ConfigPage() {
 
       <Card className="shadow-md">
         <CardHeader className="pb-6">
-          <div className="flex items-center w-full">
+          <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-semibold">基本设置</h2>
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 配置网站的基本信息，这些设置会影响网站的显示效果
               </p>
             </div>
+            <Button
+              color="primary"
+              isDisabled={!hasChanges}
+              isLoading={saving}
+              startContent={<SaveIcon className="w-4 h-4" />}
+              onPress={handleSave}
+            >
+              {saving ? "保存中..." : "保存配置"}
+            </Button>
           </div>
         </CardHeader>
 
@@ -1622,7 +1631,7 @@ export default function ConfigPage() {
           <div className="flex justify-end pt-6 border-t border-divider/50 mt-4">
             <Button
               color="primary"
-              disabled={!hasChanges}
+              isDisabled={!hasChanges}
               isLoading={saving}
               startContent={<SaveIcon className="w-4 h-4" />}
               onPress={handleSave}
