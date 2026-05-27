@@ -79,6 +79,10 @@ export interface ForwardApiItem {
   maxConn?: number;
   proxyProtocol?: number;
   forwardMode?: string;
+  trafficLimit?: number;
+  trafficUsed?: number;
+  expireTime?: number | null;
+  speedLimitRuleId?: number | null;
   inx?: number;
   [key: string]: unknown;
 }

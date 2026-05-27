@@ -45,20 +45,24 @@ func (r *Repository) ListForwardsByTunnelTx(tx *gorm.DB, tunnelID int64) ([]mode
 	rows := make([]model.ForwardRecord, 0, len(forwards))
 	for _, f := range forwards {
 		rows = append(rows, model.ForwardRecord{
-			ID:            f.ID,
-			UserID:        f.UserID,
-			UserName:      f.UserName,
-			Name:          f.Name,
-			TunnelID:      f.TunnelID,
-			RemoteAddr:    f.RemoteAddr,
-			Strategy:      f.Strategy,
-			Status:        f.Status,
-			SpeedID:       f.SpeedID,
-			MaxConn:       f.MaxConn,
-			IPMaxConn:     f.IPMaxConn,
-			IPSpeedID:     f.IPSpeedID,
-			ProxyProtocol: f.ProxyProtocol,
-			ForwardMode:   normalizeForwardMode(f.ForwardMode),
+			ID:               f.ID,
+			UserID:           f.UserID,
+			UserName:         f.UserName,
+			Name:             f.Name,
+			TunnelID:         f.TunnelID,
+			RemoteAddr:       f.RemoteAddr,
+			Strategy:         f.Strategy,
+			Status:           f.Status,
+			SpeedID:          f.SpeedID,
+			MaxConn:          f.MaxConn,
+			IPMaxConn:        f.IPMaxConn,
+			IPSpeedID:        f.IPSpeedID,
+			ProxyProtocol:    f.ProxyProtocol,
+			ForwardMode:      normalizeForwardMode(f.ForwardMode),
+			TrafficLimit:     f.TrafficLimit,
+			TrafficUsed:      f.TrafficUsed,
+			ExpireTime:       f.ExpireTime,
+			SpeedLimitRuleID: f.SpeedLimitRuleID,
 		})
 	}
 	for i := range rows {

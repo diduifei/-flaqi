@@ -335,6 +335,34 @@ func (h *Handler) enforceFlowPolicies(userID int64, userTunnelID int64) {
 	}
 }
 
+func (h *Handler) enforceForwardAdvancedPolicy(forwardID int64) {
+	if h == nil || h.repo == nil || forwardID <= 0 {
+		return
+	}
+	forward, err := h.getForwardRecord(forwardID)
+	if err != nil || forward == nil || forward.Status != 1 {
+		return
+	}
+	now := time.Now().UnixMilli()
+	if shouldPauseForwardByAdvancedLimit(forward, now) {
+		_ = h.controlForwardServices(forward, "PauseService", false)
+		_ = h.repo.UpdateForwardStatus(forward.ID, 0, now)
+	}
+}
+
+func shouldPauseForwardByAdvancedLimit(forward *forwardRecord, now int64) bool {
+	if forward == nil {
+		return false
+	}
+	if forward.ExpireTime.Valid && forward.ExpireTime.Int64 > 0 && forward.ExpireTime.Int64 <= now {
+		return true
+	}
+	if forward.TrafficLimit > 0 && forward.TrafficUsed >= forward.TrafficLimit {
+		return true
+	}
+	return false
+}
+
 func (h *Handler) ensureUserTunnelForwardAllowed(userID int64, tunnelID int64, now int64) error {
 	if h == nil || h.repo == nil {
 		return errors.New("invalid flow policy context")

@@ -733,6 +733,23 @@ func (r *Repository) UpdateForward(id int64, name string, tunnelID int64, remote
 		}).Error
 }
 
+func (r *Repository) UpdateForwardAdvancedLimits(id int64, trafficLimit int64, expireTime interface{}, speedLimitRuleID interface{}, now int64) error {
+	if r == nil || r.db == nil {
+		return errors.New("repository not initialized")
+	}
+	if trafficLimit < 0 {
+		trafficLimit = 0
+	}
+	return r.db.Model(&model.Forward{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"traffic_limit":       trafficLimit,
+			"expire_time":         nullInt64FromInterface(expireTime),
+			"speed_limit_rule_id": nullInt64FromInterface(speedLimitRuleID),
+			"updated_time":        now,
+		}).Error
+}
+
 func (r *Repository) UpdateForwardOrder(forwardID int64, inx int, now int64) {
 	if r == nil || r.db == nil {
 		return

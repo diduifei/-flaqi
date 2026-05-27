@@ -165,6 +165,7 @@ func (h *Handler) runResetAndExpiryJob(now time.Time) {
 	h.resetUserQuotaWindows(now)
 	h.disableExpiredUsers(now.UnixMilli())
 	h.disableExpiredUserTunnels(now.UnixMilli())
+	h.disableExpiredOrLimitedForwards(now.UnixMilli())
 }
 
 func (h *Handler) resetMonthlyFlow(now time.Time) {
@@ -203,6 +204,14 @@ func (h *Handler) disableExpiredUserTunnels(nowMs int64) {
 		}
 		_ = h.repo.DisableUserTunnel(item.ID)
 	}
+}
+
+func (h *Handler) disableExpiredOrLimitedForwards(nowMs int64) {
+	forwards, err := h.repo.ListExpiredOrLimitedActiveForwards(nowMs)
+	if err != nil || len(forwards) == 0 {
+		return
+	}
+	h.pauseForwardRecords(forwards, nowMs)
 }
 
 func (h *Handler) runNodeRenewalCycleLoop(ctx context.Context) {

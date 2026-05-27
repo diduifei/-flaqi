@@ -1960,9 +1960,22 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("转发模式仅支持 gost 或 nftables"))
 		return
 	}
+	trafficLimit := normalizeTrafficLimitBytes(req["trafficLimit"], req["trafficLimitGB"])
+	expireTime := normalizeForwardExpireTime(req["expireTime"])
+	speedLimitRuleID := asAnyToInt64Ptr(req["speedLimitRuleId"])
+	speedLimitRuleID, err = h.normalizeSpeedLimitReference(speedLimitRuleID)
+	if err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
+	}
 
 	forwardID, err := h.repo.CreateForwardTx(userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConn, ipMaxConn, nullableInt(ipSpeedID), proxyProtocol, forwardMode)
 	if err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
+	}
+	if err := h.repo.UpdateForwardAdvancedLimits(forwardID, trafficLimit, nullableInt(expireTime), nullableInt(speedLimitRuleID), now); err != nil {
+		_ = h.deleteForwardByID(forwardID)
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
@@ -2144,8 +2157,32 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("转发模式仅支持 gost 或 nftables"))
 		return
 	}
+	trafficLimit := forward.TrafficLimit
+	if _, ok := req["trafficLimit"]; ok {
+		trafficLimit = normalizeTrafficLimitBytes(req["trafficLimit"], req["trafficLimitGB"])
+	} else if _, ok := req["trafficLimitGB"]; ok {
+		trafficLimit = normalizeTrafficLimitBytes(req["trafficLimit"], req["trafficLimitGB"])
+	}
+	expireTime := nullableRecordInt64(forward.ExpireTime)
+	if _, ok := req["expireTime"]; ok {
+		expireTime = normalizeForwardExpireTime(req["expireTime"])
+	}
+	rawSpeedLimitRuleID, hasSpeedLimitRuleID := req["speedLimitRuleId"]
+	speedLimitRuleID := nullableRecordInt64(forward.SpeedLimitRuleID)
+	if hasSpeedLimitRuleID {
+		speedLimitRuleID = asAnyToInt64Ptr(rawSpeedLimitRuleID)
+		speedLimitRuleID, err = h.normalizeSpeedLimitReference(speedLimitRuleID)
+		if err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+	}
 
 	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, now, newSpeedID, maxConn, ipMaxConn, newIPSpeedID, proxyProtocol, forwardMode); err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
+	}
+	if err := h.repo.UpdateForwardAdvancedLimits(id, trafficLimit, nullableInt(expireTime), nullableInt(speedLimitRuleID), now); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
@@ -4874,6 +4911,34 @@ func nullableInt(v *int64) interface{} {
 		return nil
 	}
 	return *v
+}
+
+func nullableRecordInt64(v sql.NullInt64) *int64 {
+	if !v.Valid || v.Int64 <= 0 {
+		return nil
+	}
+	out := v.Int64
+	return &out
+}
+
+func normalizeForwardExpireTime(v interface{}) *int64 {
+	expireTime := asInt64(v, 0)
+	if expireTime <= 0 {
+		return nil
+	}
+	return &expireTime
+}
+
+func normalizeTrafficLimitBytes(rawBytes interface{}, rawGB interface{}) int64 {
+	limit := asInt64(rawBytes, 0)
+	if limit > 0 {
+		return limit
+	}
+	gb := asFloat(rawGB, 0)
+	if gb <= 0 {
+		return 0
+	}
+	return int64(gb * float64(bytesPerGB))
 }
 
 func defaultString(v, def string) string {

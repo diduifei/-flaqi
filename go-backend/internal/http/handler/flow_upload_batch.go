@@ -120,6 +120,11 @@ func (h *Handler) applyFlowUploadBatch(nodeID int64, batch flowUploadBatch, now 
 		}
 		h.enforceFlowPolicies(target.UserID, target.UserTunnelID)
 	}
+	for _, delta := range batch.flowDeltas {
+		if delta.ForwardID > 0 {
+			h.enforceForwardAdvancedPolicy(delta.ForwardID)
+		}
+	}
 	for serviceName := range batch.orphanServices {
 		h.sendDeleteOrphanedForwardService(nodeID, serviceName)
 	}

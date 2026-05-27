@@ -130,6 +130,10 @@ interface Forward {
   ipSpeedLimitName?: string;
   proxyProtocol?: number;
   forwardMode?: string;
+  trafficLimit?: number;
+  trafficUsed?: number;
+  expireTime?: number | null;
+  speedLimitRuleId?: number | null;
 }
 
 interface Tunnel {
@@ -169,6 +173,9 @@ interface ForwardForm {
   maxConn?: number;
   proxyProtocol?: number;
   forwardMode?: "gost" | "nftables";
+  trafficLimitGB: number | null;
+  expireTime: number | null;
+  speedLimitRuleId: number | null;
 }
 
 interface ForwardUserGroup {
@@ -554,6 +561,19 @@ const isSameGroupCollapsedMap = (
   return true;
 };
 
+const toDateTimeLocalValue = (value?: number | null): string => {
+  if (!value || value <= 0) return "";
+  const date = new Date(value);
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+};
+
+const fromDateTimeLocalValue = (value: string): number | null => {
+  if (!value) return null;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+};
+
 const normalizeForwardItems = (items: Forward[]): Forward[] => {
   return items.map((forward) => ({
     ...forward,
@@ -602,6 +622,16 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
         : undefined,
     forwardMode:
       forward.forwardMode === "nftables" ? "nftables" : "gost",
+    trafficLimit:
+      typeof forward.trafficLimit === "number" ? forward.trafficLimit : 0,
+    trafficUsed:
+      typeof forward.trafficUsed === "number" ? forward.trafficUsed : 0,
+    expireTime:
+      typeof forward.expireTime === "number" ? forward.expireTime : null,
+    speedLimitRuleId:
+      typeof forward.speedLimitRuleId === "number" || forward.speedLimitRuleId === null
+        ? forward.speedLimitRuleId
+        : null,
     serviceRunning: forward.status === 1,
   }));
 };
@@ -1340,6 +1370,9 @@ export default function ForwardPage() {
     maxConn: 0,
     proxyProtocol: 0,
     forwardMode: "gost",
+    trafficLimitGB: null,
+    expireTime: null,
+    speedLimitRuleId: null,
   });
   const [inIpTouched, setInIpTouched] = useState(false);
 
@@ -2053,6 +2086,7 @@ export default function ForwardPage() {
 
   const selectedSpeedId = normalizeSpeedId(form.speedId);
   const selectedIPSpeedId = normalizeSpeedId(form.ipSpeedId);
+  const selectedRuleSpeedId = normalizeSpeedId(form.speedLimitRuleId);
 
   const validateForm = (): boolean => {
     const newErrors: { [key: string]: string } = {};
@@ -2141,6 +2175,9 @@ export default function ForwardPage() {
       maxConn: 0,
       proxyProtocol: 0,
       forwardMode: "gost",
+      trafficLimitGB: null,
+      expireTime: null,
+      speedLimitRuleId: null,
     });
     setErrors({});
     setModalOpen(true);
@@ -2166,6 +2203,12 @@ export default function ForwardPage() {
       maxConn: forward.maxConn ?? 0,
       proxyProtocol: forward.proxyProtocol ?? 0,
       forwardMode: forward.forwardMode === "nftables" ? "nftables" : "gost",
+      trafficLimitGB:
+        forward.trafficLimit && forward.trafficLimit > 0
+          ? Number((forward.trafficLimit / 1024 / 1024 / 1024).toFixed(2))
+          : null,
+      expireTime: forward.expireTime ?? null,
+      speedLimitRuleId: normalizeSpeedId(forward.speedLimitRuleId),
     });
     setErrors({});
     setModalOpen(true);
@@ -2285,6 +2328,10 @@ export default function ForwardPage() {
       const speedLimitAutoCleared = isMissingSpeedLimit(form.speedId);
       const normalizedIPSpeedId = normalizeSpeedId(form.ipSpeedId);
       const ipSpeedLimitAutoCleared = isMissingSpeedLimit(form.ipSpeedId);
+      const normalizedRuleSpeedId = normalizeSpeedId(form.speedLimitRuleId);
+      const trafficLimit = form.trafficLimitGB
+        ? Math.round(form.trafficLimitGB * 1024 * 1024 * 1024)
+        : 0;
 
       if (isEdit) {
         const updateData = {
@@ -2301,6 +2348,9 @@ export default function ForwardPage() {
           maxConn: form.maxConn,
           proxyProtocol: form.proxyProtocol,
           forwardMode: form.forwardMode || "gost",
+          trafficLimit,
+          expireTime: form.expireTime,
+          speedLimitRuleId: normalizedRuleSpeedId,
         };
 
         res = await updateForward(updateData);
@@ -2318,6 +2368,9 @@ export default function ForwardPage() {
           maxConn: form.maxConn,
           proxyProtocol: form.proxyProtocol,
           forwardMode: form.forwardMode || "gost",
+          trafficLimit,
+          expireTime: form.expireTime,
+          speedLimitRuleId: normalizedRuleSpeedId,
         };
 
         res = await createForward(createData);
@@ -4966,6 +5019,76 @@ export default function ForwardPage() {
                             nftables 内核态转发
                           </SelectItem>
                         </Select>
+                        <Input
+                          description="0 或留空表示不限制；保存时按 GB 自动换算为字节。"
+                          label="流量限制(GB)"
+                          min="0"
+                          placeholder="不限制"
+                          type="number"
+                          value={
+                            form.trafficLimitGB === null
+                              ? ""
+                              : String(form.trafficLimitGB)
+                          }
+                          variant="bordered"
+                          onChange={(e) => {
+                            const value = Number(e.target.value);
+                            setForm((prev) => ({
+                              ...prev,
+                              trafficLimitGB:
+                                e.target.value === "" || !Number.isFinite(value)
+                                  ? null
+                                  : Math.max(value, 0),
+                            }));
+                          }}
+                        />
+                        <Input
+                          description="留空表示永久有效；到期后规则会被自动暂停。"
+                          label="到期时间"
+                          type="datetime-local"
+                          value={toDateTimeLocalValue(form.expireTime)}
+                          variant="bordered"
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              expireTime: fromDateTimeLocalValue(e.target.value),
+                            }))
+                          }
+                        />
+                        {isAdmin && (
+                          <Select
+                            description="单条规则专属限速模板，优先级高于普通规则限速。"
+                            label="规则限速"
+                            placeholder="不限制"
+                            selectedKeys={
+                              selectedRuleSpeedId !== null
+                                ? [selectedRuleSpeedId.toString()]
+                                : []
+                            }
+                            variant="bordered"
+                            onSelectionChange={(keys) => {
+                              const selectedKey = Array.from(keys)[0] as
+                                | string
+                                | undefined;
+
+                              setForm((prev) => ({
+                                ...prev,
+                                speedLimitRuleId: selectedKey
+                                  ? Number(selectedKey)
+                                  : null,
+                              }));
+                            }}
+                          >
+                            {availableSpeedLimits.map((speedLimit) => (
+                              <SelectItem
+                                key={speedLimit.id.toString()}
+                                textValue={speedLimit.name}
+                              >
+                                {speedLimit.name}
+                              </SelectItem>
+                            ))}
+                          </Select>
+                        )}
                         <Input
                           description="大于 0 时优先于用户全局限制；0 或空表示使用用户全局限制，用户也为 0 时不限制。"
                           label="最大连接数"

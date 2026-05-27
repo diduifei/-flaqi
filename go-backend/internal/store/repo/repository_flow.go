@@ -114,20 +114,24 @@ func (r *Repository) ListActiveForwardsByUser(userID int64) ([]model.ForwardReco
 	rows := make([]model.ForwardRecord, 0, len(forwards))
 	for _, f := range forwards {
 		rows = append(rows, model.ForwardRecord{
-			ID:            f.ID,
-			UserID:        f.UserID,
-			UserName:      f.UserName,
-			Name:          f.Name,
-			TunnelID:      f.TunnelID,
-			RemoteAddr:    f.RemoteAddr,
-			Strategy:      f.Strategy,
-			Status:        f.Status,
-			SpeedID:       f.SpeedID,
-			MaxConn:       f.MaxConn,
-			IPMaxConn:     f.IPMaxConn,
-			IPSpeedID:     f.IPSpeedID,
-			ProxyProtocol: f.ProxyProtocol,
-			ForwardMode:   normalizeForwardMode(f.ForwardMode),
+			ID:               f.ID,
+			UserID:           f.UserID,
+			UserName:         f.UserName,
+			Name:             f.Name,
+			TunnelID:         f.TunnelID,
+			RemoteAddr:       f.RemoteAddr,
+			Strategy:         f.Strategy,
+			Status:           f.Status,
+			SpeedID:          f.SpeedID,
+			MaxConn:          f.MaxConn,
+			IPMaxConn:        f.IPMaxConn,
+			IPSpeedID:        f.IPSpeedID,
+			ProxyProtocol:    f.ProxyProtocol,
+			ForwardMode:      normalizeForwardMode(f.ForwardMode),
+			TrafficLimit:     f.TrafficLimit,
+			TrafficUsed:      f.TrafficUsed,
+			ExpireTime:       f.ExpireTime,
+			SpeedLimitRuleID: f.SpeedLimitRuleID,
 		})
 	}
 	for i := range rows {
@@ -151,20 +155,24 @@ func (r *Repository) ListActiveForwardsByUserTunnel(userID, tunnelID int64) ([]m
 	rows := make([]model.ForwardRecord, 0, len(forwards))
 	for _, f := range forwards {
 		rows = append(rows, model.ForwardRecord{
-			ID:            f.ID,
-			UserID:        f.UserID,
-			UserName:      f.UserName,
-			Name:          f.Name,
-			TunnelID:      f.TunnelID,
-			RemoteAddr:    f.RemoteAddr,
-			Strategy:      f.Strategy,
-			Status:        f.Status,
-			SpeedID:       f.SpeedID,
-			MaxConn:       f.MaxConn,
-			IPMaxConn:     f.IPMaxConn,
-			IPSpeedID:     f.IPSpeedID,
-			ProxyProtocol: f.ProxyProtocol,
-			ForwardMode:   normalizeForwardMode(f.ForwardMode),
+			ID:               f.ID,
+			UserID:           f.UserID,
+			UserName:         f.UserName,
+			Name:             f.Name,
+			TunnelID:         f.TunnelID,
+			RemoteAddr:       f.RemoteAddr,
+			Strategy:         f.Strategy,
+			Status:           f.Status,
+			SpeedID:          f.SpeedID,
+			MaxConn:          f.MaxConn,
+			IPMaxConn:        f.IPMaxConn,
+			IPSpeedID:        f.IPSpeedID,
+			ProxyProtocol:    f.ProxyProtocol,
+			ForwardMode:      normalizeForwardMode(f.ForwardMode),
+			TrafficLimit:     f.TrafficLimit,
+			TrafficUsed:      f.TrafficUsed,
+			ExpireTime:       f.ExpireTime,
+			SpeedLimitRuleID: f.SpeedLimitRuleID,
 		})
 	}
 	for i := range rows {
@@ -188,20 +196,24 @@ func (r *Repository) ListForwardsByUserAndTunnel(userID, tunnelID int64) ([]mode
 	rows := make([]model.ForwardRecord, 0, len(forwards))
 	for _, f := range forwards {
 		rows = append(rows, model.ForwardRecord{
-			ID:            f.ID,
-			UserID:        f.UserID,
-			UserName:      f.UserName,
-			Name:          f.Name,
-			TunnelID:      f.TunnelID,
-			RemoteAddr:    f.RemoteAddr,
-			Strategy:      f.Strategy,
-			Status:        f.Status,
-			SpeedID:       f.SpeedID,
-			MaxConn:       f.MaxConn,
-			IPMaxConn:     f.IPMaxConn,
-			IPSpeedID:     f.IPSpeedID,
-			ProxyProtocol: f.ProxyProtocol,
-			ForwardMode:   normalizeForwardMode(f.ForwardMode),
+			ID:               f.ID,
+			UserID:           f.UserID,
+			UserName:         f.UserName,
+			Name:             f.Name,
+			TunnelID:         f.TunnelID,
+			RemoteAddr:       f.RemoteAddr,
+			Strategy:         f.Strategy,
+			Status:           f.Status,
+			SpeedID:          f.SpeedID,
+			MaxConn:          f.MaxConn,
+			IPMaxConn:        f.IPMaxConn,
+			IPSpeedID:        f.IPSpeedID,
+			ProxyProtocol:    f.ProxyProtocol,
+			ForwardMode:      normalizeForwardMode(f.ForwardMode),
+			TrafficLimit:     f.TrafficLimit,
+			TrafficUsed:      f.TrafficUsed,
+			ExpireTime:       f.ExpireTime,
+			SpeedLimitRuleID: f.SpeedLimitRuleID,
 		})
 	}
 	for i := range rows {
@@ -209,6 +221,45 @@ func (r *Repository) ListForwardsByUserAndTunnel(userID, tunnelID int64) ([]mode
 			rows[i].Strategy = "fifo"
 		}
 		rows[i].ForwardMode = normalizeForwardMode(rows[i].ForwardMode)
+	}
+	return rows, nil
+}
+
+func (r *Repository) ListExpiredOrLimitedActiveForwards(nowMs int64) ([]model.ForwardRecord, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("repository not initialized")
+	}
+	var forwards []model.Forward
+	err := r.db.
+		Where("status = 1").
+		Where("(expire_time IS NOT NULL AND expire_time > 0 AND expire_time <= ?) OR (traffic_limit > 0 AND traffic_used >= traffic_limit)", nowMs).
+		Order("id ASC").
+		Find(&forwards).Error
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]model.ForwardRecord, 0, len(forwards))
+	for _, f := range forwards {
+		rows = append(rows, model.ForwardRecord{
+			ID:               f.ID,
+			UserID:           f.UserID,
+			UserName:         f.UserName,
+			Name:             f.Name,
+			TunnelID:         f.TunnelID,
+			RemoteAddr:       f.RemoteAddr,
+			Strategy:         f.Strategy,
+			Status:           f.Status,
+			SpeedID:          f.SpeedID,
+			MaxConn:          f.MaxConn,
+			IPMaxConn:        f.IPMaxConn,
+			IPSpeedID:        f.IPSpeedID,
+			ProxyProtocol:    f.ProxyProtocol,
+			ForwardMode:      normalizeForwardMode(f.ForwardMode),
+			TrafficLimit:     f.TrafficLimit,
+			TrafficUsed:      f.TrafficUsed,
+			ExpireTime:       f.ExpireTime,
+			SpeedLimitRuleID: f.SpeedLimitRuleID,
+		})
 	}
 	return rows, nil
 }
@@ -226,20 +277,24 @@ func (r *Repository) GetForwardRecord(forwardID int64) (*model.ForwardRecord, er
 		return nil, err
 	}
 	fr := model.ForwardRecord{
-		ID:            f.ID,
-		UserID:        f.UserID,
-		UserName:      f.UserName,
-		Name:          f.Name,
-		TunnelID:      f.TunnelID,
-		RemoteAddr:    f.RemoteAddr,
-		Strategy:      f.Strategy,
-		Status:        f.Status,
-		SpeedID:       f.SpeedID,
-		MaxConn:       f.MaxConn,
-		IPMaxConn:     f.IPMaxConn,
-		IPSpeedID:     f.IPSpeedID,
-		ProxyProtocol: f.ProxyProtocol,
-		ForwardMode:   normalizeForwardMode(f.ForwardMode),
+		ID:               f.ID,
+		UserID:           f.UserID,
+		UserName:         f.UserName,
+		Name:             f.Name,
+		TunnelID:         f.TunnelID,
+		RemoteAddr:       f.RemoteAddr,
+		Strategy:         f.Strategy,
+		Status:           f.Status,
+		SpeedID:          f.SpeedID,
+		MaxConn:          f.MaxConn,
+		IPMaxConn:        f.IPMaxConn,
+		IPSpeedID:        f.IPSpeedID,
+		ProxyProtocol:    f.ProxyProtocol,
+		ForwardMode:      normalizeForwardMode(f.ForwardMode),
+		TrafficLimit:     f.TrafficLimit,
+		TrafficUsed:      f.TrafficUsed,
+		ExpireTime:       f.ExpireTime,
+		SpeedLimitRuleID: f.SpeedLimitRuleID,
 	}
 	if strings.TrimSpace(fr.Strategy) == "" {
 		fr.Strategy = "fifo"

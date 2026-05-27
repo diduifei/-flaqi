@@ -235,6 +235,9 @@ func (h *Handler) syncForwardServicesWithWarnings(forward *forwardRecord, method
 	if h == nil || forward == nil {
 		return nil, errors.New("invalid forward sync context")
 	}
+	if !strings.EqualFold(strings.TrimSpace(method), "DeleteService") && shouldPauseForwardByAdvancedLimit(forward, time.Now().UnixMilli()) {
+		return nil, errors.New("forward rule is expired or traffic limit has been exhausted")
+	}
 	if isNftForwardMode(forward.ForwardMode) {
 		return h.syncNftForwardRules(forward)
 	}
@@ -262,7 +265,13 @@ func (h *Handler) syncForwardServicesWithWarnings(forward *forwardRecord, method
 	var limiterID *int64
 	var speed *int
 
-	if forward.SpeedID.Valid && forward.SpeedID.Int64 > 0 {
+	if forward.SpeedLimitRuleID.Valid && forward.SpeedLimitRuleID.Int64 > 0 {
+		speedVal, err := h.repo.GetSpeedLimitSpeed(forward.SpeedLimitRuleID.Int64)
+		if err == nil && speedVal > 0 {
+			limiterID = &forward.SpeedLimitRuleID.Int64
+			speed = &speedVal
+		}
+	} else if forward.SpeedID.Valid && forward.SpeedID.Int64 > 0 {
 		// Forward has its own speed limit
 		speedVal, err := h.repo.GetSpeedLimitSpeed(forward.SpeedID.Int64)
 		if err == nil && speedVal > 0 {

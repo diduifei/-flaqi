@@ -132,8 +132,9 @@ func (r *Repository) ApplyFlowUploadDeltasBatch(deltas []FlowUploadCounterDelta)
 		for _, forwardID := range sortedFlowUploadTargetIDs(forwardTotals) {
 			total := forwardTotals[forwardID]
 			if err := tx.Model(&model.Forward{}).Where("id = ?", forwardID).UpdateColumns(map[string]interface{}{
-				"in_flow":  gorm.Expr("in_flow + ?", total[0]),
-				"out_flow": gorm.Expr("out_flow + ?", total[1]),
+				"in_flow":      gorm.Expr("in_flow + ?", total[0]),
+				"out_flow":     gorm.Expr("out_flow + ?", total[1]),
+				"traffic_used": gorm.Expr("traffic_used + ?", total[0]+total[1]),
 			}).Error; err != nil {
 				return err
 			}
@@ -405,7 +406,7 @@ func prepareSQLiteLegacyColumns(db *gorm.DB) error {
 	}
 
 	if m.HasTable(&model.Forward{}) {
-		for _, field := range []string{"MaxConn", "IPMaxConn", "IPSpeedID", "ProxyProtocol", "ForwardMode"} {
+		for _, field := range []string{"MaxConn", "IPMaxConn", "IPSpeedID", "ProxyProtocol", "ForwardMode", "TrafficLimit", "TrafficUsed", "ExpireTime", "SpeedLimitRuleID"} {
 			if m.HasColumn(&model.Forward{}, field) {
 				continue
 			}
@@ -767,8 +768,9 @@ func (r *Repository) AddFlow(forwardID, userID int64, userTunnelID int64, inFlow
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&model.Forward{}).Where("id = ?", forwardID).
 			UpdateColumns(map[string]interface{}{
-				"in_flow":  gorm.Expr("in_flow + ?", inFlow),
-				"out_flow": gorm.Expr("out_flow + ?", outFlow),
+				"in_flow":      gorm.Expr("in_flow + ?", inFlow),
+				"out_flow":     gorm.Expr("out_flow + ?", outFlow),
+				"traffic_used": gorm.Expr("traffic_used + ?", inFlow+outFlow),
 			}).Error; err != nil {
 			return err
 		}
@@ -916,11 +918,15 @@ func (r *Repository) ListForwards() ([]map[string]interface{}, error) {
 		IPSpeedLimitName string
 		ProxyProtocol    int
 		ForwardMode      string
+		TrafficLimit     int64
+		TrafficUsed      int64
+		ExpireTime       sql.NullInt64
+		SpeedLimitRuleID sql.NullInt64
 	}
 
 	var rows []fwdRow
 	err := r.db.Model(&model.Forward{}).
-		Select("forward.id, forward.user_id, forward.user_name, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, forward.max_conn, forward.ip_max_conn, forward.ip_speed_id, COALESCE(ip_speed_limit.name, '') AS ip_speed_limit_name, forward.proxy_protocol, COALESCE(forward.forward_mode, 'gost') AS forward_mode").
+		Select("forward.id, forward.user_id, forward.user_name, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, forward.max_conn, forward.ip_max_conn, forward.ip_speed_id, COALESCE(ip_speed_limit.name, '') AS ip_speed_limit_name, forward.proxy_protocol, COALESCE(forward.forward_mode, 'gost') AS forward_mode, forward.traffic_limit, forward.traffic_used, forward.expire_time, forward.speed_limit_rule_id").
 		Joins("LEFT JOIN tunnel ON tunnel.id = forward.tunnel_id").
 		Joins("LEFT JOIN speed_limit AS ip_speed_limit ON ip_speed_limit.id = forward.ip_speed_id").
 		Order("forward.inx ASC, forward.id ASC").
@@ -947,6 +953,14 @@ func (r *Repository) ListForwards() ([]map[string]interface{}, error) {
 			"ipMaxConn":     row.IPMaxConn,
 			"proxyProtocol": row.ProxyProtocol,
 			"forwardMode":   normalizeForwardMode(row.ForwardMode),
+			"trafficLimit":  row.TrafficLimit,
+			"trafficUsed":   row.TrafficUsed,
+		}
+		if row.ExpireTime.Valid {
+			item["expireTime"] = row.ExpireTime.Int64
+		}
+		if row.SpeedLimitRuleID.Valid {
+			item["speedLimitRuleId"] = row.SpeedLimitRuleID.Int64
 		}
 		if row.SpeedID.Valid {
 			item["speedId"] = row.SpeedID.Int64
@@ -2152,6 +2166,16 @@ func (r *Repository) exportForwards() ([]model.ForwardBackup, error) {
 			IPMaxConn:     f.IPMaxConn,
 			ProxyProtocol: f.ProxyProtocol,
 			ForwardMode:   normalizeForwardMode(f.ForwardMode),
+			TrafficLimit:  f.TrafficLimit,
+			TrafficUsed:   f.TrafficUsed,
+		}
+		if f.ExpireTime.Valid {
+			v := f.ExpireTime.Int64
+			b.ExpireTime = &v
+		}
+		if f.SpeedLimitRuleID.Valid {
+			v := f.SpeedLimitRuleID.Int64
+			b.SpeedLimitRuleID = &v
 		}
 		if f.SpeedID.Valid {
 			v := f.SpeedID.Int64
@@ -2585,31 +2609,35 @@ func importForwards(tx *gorm.DB, forwards []model.ForwardBackup, now int64) (int
 	count := 0
 	for _, f := range forwards {
 		item := model.Forward{
-			ID:            f.ID,
-			UserID:        f.UserID,
-			UserName:      f.UserName,
-			Name:          f.Name,
-			TunnelID:      f.TunnelID,
-			RemoteAddr:    f.RemoteAddr,
-			Strategy:      f.Strategy,
-			InFlow:        f.InFlow,
-			OutFlow:       f.OutFlow,
-			CreatedTime:   f.CreatedTime,
-			UpdatedTime:   now,
-			Status:        f.Status,
-			Inx:           f.Inx,
-			SpeedID:       sql.NullInt64{Int64: nullableBackupInt64(f.SpeedID), Valid: f.SpeedID != nil && *f.SpeedID > 0},
-			MaxConn:       f.MaxConn,
-			IPMaxConn:     f.IPMaxConn,
-			IPSpeedID:     sql.NullInt64{Int64: nullableBackupInt64(f.IPSpeedID), Valid: f.IPSpeedID != nil && *f.IPSpeedID > 0},
-			ProxyProtocol: f.ProxyProtocol,
-			ForwardMode:   normalizeForwardMode(f.ForwardMode),
+			ID:               f.ID,
+			UserID:           f.UserID,
+			UserName:         f.UserName,
+			Name:             f.Name,
+			TunnelID:         f.TunnelID,
+			RemoteAddr:       f.RemoteAddr,
+			Strategy:         f.Strategy,
+			InFlow:           f.InFlow,
+			OutFlow:          f.OutFlow,
+			CreatedTime:      f.CreatedTime,
+			UpdatedTime:      now,
+			Status:           f.Status,
+			Inx:              f.Inx,
+			SpeedID:          sql.NullInt64{Int64: nullableBackupInt64(f.SpeedID), Valid: f.SpeedID != nil && *f.SpeedID > 0},
+			MaxConn:          f.MaxConn,
+			IPMaxConn:        f.IPMaxConn,
+			IPSpeedID:        sql.NullInt64{Int64: nullableBackupInt64(f.IPSpeedID), Valid: f.IPSpeedID != nil && *f.IPSpeedID > 0},
+			ProxyProtocol:    f.ProxyProtocol,
+			ForwardMode:      normalizeForwardMode(f.ForwardMode),
+			TrafficLimit:     f.TrafficLimit,
+			TrafficUsed:      f.TrafficUsed,
+			ExpireTime:       sql.NullInt64{Int64: nullableBackupInt64(f.ExpireTime), Valid: f.ExpireTime != nil && *f.ExpireTime > 0},
+			SpeedLimitRuleID: sql.NullInt64{Int64: nullableBackupInt64(f.SpeedLimitRuleID), Valid: f.SpeedLimitRuleID != nil && *f.SpeedLimitRuleID > 0},
 		}
 		err := tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "id"}},
 			DoUpdates: clause.AssignmentColumns([]string{
 				"user_id", "user_name", "name", "tunnel_id", "remote_addr", "strategy",
-				"in_flow", "out_flow", "updated_time", "status", "inx", "speed_id", "max_conn", "ip_max_conn", "ip_speed_id", "proxy_protocol", "forward_mode",
+				"in_flow", "out_flow", "updated_time", "status", "inx", "speed_id", "max_conn", "ip_max_conn", "ip_speed_id", "proxy_protocol", "forward_mode", "traffic_limit", "traffic_used", "expire_time", "speed_limit_rule_id",
 			}),
 		}).Create(&item).Error
 		if err != nil {
