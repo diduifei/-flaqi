@@ -501,9 +501,20 @@ func buildLocalAgentInstallCommand(panelAddr, secret string) string {
 func normalizePanelInstallHost(panelAddr string) string {
 	addr := processServerAddress(panelAddr)
 	if host, _, err := net.SplitHostPort(addr); err == nil {
-		return strings.Trim(host, "[]")
+		return formatInstallCommandHost(host)
 	}
-	return strings.Trim(addr, "[]")
+	return formatInstallCommandHost(addr)
+}
+
+func formatInstallCommandHost(host string) string {
+	host = strings.TrimSpace(host)
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		return host
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		return "[" + host + "]"
+	}
+	return strings.Trim(host, "[]")
 }
 
 func (h *Handler) nodeUpdateOrder(w http.ResponseWriter, r *http.Request) {
