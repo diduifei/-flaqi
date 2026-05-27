@@ -223,18 +223,167 @@ const FORWARD_GROUP_COLLAPSED_CONFIG_KEY = "forward_group_collapsed_map";
 const FORWARD_GROUP_ORDER_LOCAL_STORAGE_PREFIX = "forward-group-order";
 const FORWARD_GROUP_COLLAPSED_LOCAL_STORAGE_PREFIX = "forward-group-collapsed";
 const FORWARD_TUNNEL_GROUP_SORTABLE_PREFIX = "forward-tunnel-group";
-const FORWARD_GROUPED_TABLE_MIN_WIDTH_CLASS = "min-w-[1320px]";
+const FORWARD_GROUPED_TABLE_MIN_WIDTH_CLASS = "min-w-[1460px]";
 const FORWARD_GROUPED_TABLE_COLUMN_CLASS = {
   select: "w-14",
   drag: "w-10 pl-4",
-  name: "w-[200px]",
+  name: "w-[220px]",
   inbound: "w-[280px]",
   target: "w-[280px]",
   strategy: "w-[100px]",
-  totalFlow: "w-[120px]",
-  status: "w-[100px]",
+  totalFlow: "w-[200px]",
+  status: "w-[160px]",
   actions: "w-[144px] text-right",
 } as const;
+
+const LIMIT_DAY_MS = 24 * 60 * 60 * 1000;
+
+const formatBytes = (value?: number | null): string => {
+  const bytes = Math.max(0, Number(value || 0));
+
+  if (bytes < 1024) return `${bytes.toFixed(0)} B`;
+
+  const units = ["KB", "MB", "GB", "TB", "PB"];
+  let scaled = bytes / 1024;
+  let unitIndex = 0;
+
+  while (scaled >= 1024 && unitIndex < units.length - 1) {
+    scaled /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${scaled.toFixed(2)} ${units[unitIndex]}`;
+};
+
+const getTrafficUsagePercent = (used?: number | null, limit?: number | null) => {
+  const safeLimit = Number(limit || 0);
+
+  if (safeLimit <= 0) return 0;
+
+  return Math.min(100, Math.max(0, (Number(used || 0) / safeLimit) * 100));
+};
+
+const getTrafficUsageColor = (percent: number) => {
+  if (percent >= 100) return "danger";
+  if (percent >= 80) return "warning";
+
+  return "success";
+};
+
+const TRAFFIC_USAGE_TEXT_CLASS: Record<string, string> = {
+  danger: "text-danger",
+  warning: "text-warning",
+  success: "text-success",
+};
+
+const formatExpireDate = (expireTime: number): string => {
+  const date = new Date(expireTime);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
+
+const FlowUsageIndicator = ({
+  forward,
+  compact = false,
+}: {
+  forward: Forward;
+  compact?: boolean;
+}) => {
+  const used = Number(forward.trafficUsed || 0);
+  const limit = Number(forward.trafficLimit || 0);
+
+  if (limit <= 0) {
+    return (
+      <div className="min-w-0">
+        <div className="text-[11px] font-medium text-default-500">
+          已用流量
+        </div>
+        <div className="truncate font-mono text-xs text-default-700">
+          {formatBytes(used)}
+        </div>
+      </div>
+    );
+  }
+
+  const percent = getTrafficUsagePercent(used, limit);
+  const color = getTrafficUsageColor(percent);
+
+  return (
+    <div className={compact ? "min-w-[128px]" : "min-w-0 w-full"}>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="truncate font-mono text-xs text-default-700">
+          {formatBytes(used)} / {formatBytes(limit)}
+        </span>
+        <span
+          className={`text-[11px] font-semibold ${TRAFFIC_USAGE_TEXT_CLASS[color] || "text-success"}`}
+        >
+          {percent.toFixed(0)}%
+        </span>
+      </div>
+      <Progress
+        aria-label="流量使用进度"
+        className="h-1.5"
+        color={color as any}
+        size="sm"
+        value={percent}
+      />
+    </div>
+  );
+};
+
+const ExpireStatusChip = ({ expireTime }: { expireTime?: number | null }) => {
+  if (!expireTime) {
+    return (
+      <Chip className="text-xs" color="default" size="sm" variant="flat">
+        永久有效
+      </Chip>
+    );
+  }
+
+  const diff = expireTime - Date.now();
+
+  if (diff <= 0) {
+    return (
+      <Chip className="text-xs" color="danger" size="sm" variant="flat">
+        已到期
+      </Chip>
+    );
+  }
+
+  const daysLeft = Math.ceil(diff / LIMIT_DAY_MS);
+
+  if (daysLeft <= 3) {
+    return (
+      <Chip className="text-xs" color="warning" size="sm" variant="flat">
+        即将到期 ({daysLeft}天)
+      </Chip>
+    );
+  }
+
+  return (
+    <Chip className="text-xs" color="success" size="sm" variant="flat">
+      {formatExpireDate(expireTime)} 到期
+    </Chip>
+  );
+};
+
+const ForwardLimitBadges = ({ forward }: { forward: Forward }) => {
+  const hasSpeedLimit = Number(forward.speedLimitRuleId || 0) > 0;
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      <ExpireStatusChip expireTime={forward.expireTime} />
+      {hasSpeedLimit && (
+        <Chip className="text-xs" color="secondary" size="sm" variant="flat">
+          已限速
+        </Chip>
+      )}
+    </div>
+  );
+};
 
 const normalizeForwardUserName = (userName?: string): string => {
   const normalized = (userName || UNKNOWN_FORWARD_USER_NAME).trim();
@@ -837,7 +986,10 @@ const SortableTableRow = ({
         className={`${FORWARD_GROUPED_TABLE_COLUMN_CLASS.name} whitespace-nowrap text-foreground cursor-pointer hover:text-primary transition-colors`}
         onClick={() => copyToClipboard(forward.name, "规则名")}
       >
-        {forward.name}
+        <div className="min-w-0">
+          <div className="truncate font-medium">{forward.name}</div>
+          <ForwardLimitBadges forward={forward} />
+        </div>
       </TableCell>
       <TableCell
         className={`${FORWARD_GROUPED_TABLE_COLUMN_CLASS.inbound} max-w-[280px]`}
@@ -878,9 +1030,12 @@ const SortableTableRow = ({
       <TableCell
         className={`${FORWARD_GROUPED_TABLE_COLUMN_CLASS.totalFlow} whitespace-nowrap`}
       >
-        <span className="text-sm font-medium text-default-600 font-mono">
-          {formatFlow(getForwardDisplayFlow(forward))}
-        </span>
+        <div className="space-y-1.5">
+          <span className="block text-sm font-medium text-default-600 font-mono">
+            {formatFlow(getForwardDisplayFlow(forward))}
+          </span>
+          <FlowUsageIndicator compact forward={forward} />
+        </div>
       </TableCell>
       <TableCell className={FORWARD_GROUPED_TABLE_COLUMN_CLASS.status}>
         <div className="flex items-center gap-2.5 whitespace-nowrap">
@@ -891,6 +1046,7 @@ const SortableTableRow = ({
             size="sm"
             onValueChange={() => handleServiceToggle(forward)}
           />
+          <ExpireStatusChip expireTime={forward.expireTime} />
         </div>
       </TableCell>
       <TableCell className={FORWARD_GROUPED_TABLE_COLUMN_CLASS.actions}>
@@ -1037,8 +1193,9 @@ const SortableCompactTableRow = ({
           type="button"
           onClick={() => copyToClipboard(forward.name, "规则名")}
         >
-          {forward.name}
+          <span className="block truncate font-medium">{forward.name}</span>
         </button>
+        <ForwardLimitBadges forward={forward} />
       </TableCell>
       <TableCell
         className={`whitespace-nowrap ${selectedIds.has(forward.id) ? "bg-primary-50/70 dark:bg-primary-900/40" : ""}`}
@@ -1103,11 +1260,14 @@ const SortableCompactTableRow = ({
         </Chip>
       </TableCell>
       <TableCell
-        className={`whitespace-nowrap ${selectedIds.has(forward.id) ? "bg-primary-50/70 dark:bg-primary-900/40" : ""}`}
+        className={`${selectedIds.has(forward.id) ? "bg-primary-50/70 dark:bg-primary-900/40" : ""}`}
       >
-        <span className="text-sm font-medium text-default-600 font-mono">
-          {formatFlow(getForwardDisplayFlow(forward))}
-        </span>
+        <div className="space-y-1.5">
+          <span className="block text-sm font-medium text-default-600 font-mono">
+            {formatFlow(getForwardDisplayFlow(forward))}
+          </span>
+          <FlowUsageIndicator compact forward={forward} />
+        </div>
       </TableCell>
       <TableCell
         className={`${selectedIds.has(forward.id) ? "bg-primary-50/70 dark:bg-primary-900/40" : ""}`}
@@ -1120,6 +1280,7 @@ const SortableCompactTableRow = ({
             size="sm"
             onValueChange={() => handleServiceToggle(forward)}
           />
+          <ExpireStatusChip expireTime={forward.expireTime} />
         </div>
       </TableCell>
       <TableCell
@@ -3827,6 +3988,7 @@ export default function ForwardPage() {
               <h3 className="font-semibold text-foreground truncate text-sm">
                 {forward.name}
               </h3>
+              <ForwardLimitBadges forward={forward} />
             </div>
             <div className="flex items-center gap-1.5 ml-2">
               <Switch
@@ -3999,6 +4161,9 @@ export default function ForwardPage() {
                   总流量 {formatFlow(0)}
                 </Chip>
               )}
+            </div>
+            <div className="rounded-lg border border-white/60 bg-white/20 p-2 dark:border-white/10 dark:bg-black/20">
+              <FlowUsageIndicator forward={forward} />
             </div>
           </div>
 
@@ -4311,7 +4476,7 @@ export default function ForwardPage() {
                   >
                     <Table
                       aria-label="全部规则列表"
-                      className="table-fixed min-w-[1160px]"
+                      className="table-fixed min-w-[1380px]"
                       classNames={{
                         wrapper:
                           "bg-transparent p-0 shadow-none border-none overflow-auto rounded-[24px]",
@@ -4345,8 +4510,8 @@ export default function ForwardPage() {
                         <TableColumn className="w-[180px]">入口</TableColumn>
                         <TableColumn className="w-[180px]">目标</TableColumn>
                         <TableColumn className="w-[80px]">策略</TableColumn>
-                        <TableColumn className="w-[100px]">用量</TableColumn>
-                        <TableColumn className="w-[80px]">状态</TableColumn>
+                        <TableColumn className="w-[200px]">用量</TableColumn>
+                        <TableColumn className="w-[160px]">状态</TableColumn>
                         <TableColumn align="left" className="w-[120px] pl-4">
                           操作
                         </TableColumn>
