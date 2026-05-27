@@ -26,6 +26,10 @@ export function VersionFooter({
   poweredClassName,
   updateBadgeClassName,
 }: VersionFooterProps) {
+  const [footerConfig, setFooterConfig] = useState({
+    hidden: siteConfig.hide_footer_brand === true,
+    text: (siteConfig.footer_text || "").trim(),
+  });
   const [channel, setChannel] = useState<UpdateReleaseChannel>(
     getUpdateReleaseChannel(),
   );
@@ -33,6 +37,21 @@ export function VersionFooter({
   const [latestUpdateVersion, setLatestUpdateVersion] = useState<string | null>(
     null,
   );
+
+  useEffect(() => {
+    const syncFooterConfig = () => {
+      setFooterConfig({
+        hidden: siteConfig.hide_footer_brand === true,
+        text: (siteConfig.footer_text || "").trim(),
+      });
+    };
+
+    window.addEventListener("site-config-updated", syncFooterConfig);
+
+    return () => {
+      window.removeEventListener("site-config-updated", syncFooterConfig);
+    };
+  }, []);
 
   useEffect(() => {
     const handleChannelChange = () => {
@@ -84,6 +103,9 @@ export function VersionFooter({
     };
   }, [channel, version]);
 
+  const shouldShowFooterText =
+    !footerConfig.hidden && footerConfig.text.length > 0;
+
   return (
     <div className={containerClassName}>
       <p className={versionClassName}>
@@ -94,18 +116,8 @@ export function VersionFooter({
           </span>
         )}
       </p>
-      {siteConfig.hide_footer_brand !== true && (
-        <p className={poweredClassName}>
-          Powered by{" "}
-          <a
-            className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-            href={siteConfig.github_repo}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            FLVX
-          </a>
-        </p>
+      {shouldShowFooterText && (
+        <p className={poweredClassName}>{footerConfig.text}</p>
       )}
     </div>
   );

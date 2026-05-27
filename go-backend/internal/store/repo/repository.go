@@ -437,8 +437,17 @@ func seedData(db *gorm.DB) {
 		}
 	}
 
-	appNameConfig := model.ViteConfig{ID: 1, Name: "app_name", Value: "flux", Time: 1755147963000}
-	db.Where("id = ?", 1).FirstOrCreate(&appNameConfig)
+	now := time.Now().UnixMilli()
+	defaultConfigs := []model.ViteConfig{
+		{ID: 1, Name: "app_name", Value: "flux", Time: 1755147963000},
+		{Name: "app_logo", Value: "", Time: now},
+		{Name: "app_favicon", Value: "", Time: now},
+		{Name: "hide_footer_brand", Value: "false", Time: now},
+		{Name: "footer_text", Value: "Powered by FLVX", Time: now},
+	}
+	for _, cfg := range defaultConfigs {
+		db.Where("name = ?", cfg.Name).FirstOrCreate(&cfg)
+	}
 }
 
 // ─── User Queries ────────────────────────────────────────────────────

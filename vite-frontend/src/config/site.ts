@@ -14,6 +14,8 @@ const PUBLIC_BRAND_CONFIG_KEYS = [
   "app_logo",
   "app_favicon",
   "app_bg_image",
+  "hide_footer_brand",
+  "footer_text",
 ] as const;
 const SENSITIVE_CONFIG_KEYS = new Set([
   "jwt_secret",
@@ -86,8 +88,8 @@ const getInitialConfig = () => {
       app_logo: "",
       app_favicon: "",
       app_bg_image: "",
-      is_commercial: false,
       hide_footer_brand: false,
+      footer_text: "Powered by FLVX",
     };
   }
 
@@ -99,10 +101,10 @@ const getInitialConfig = () => {
     localStorage.getItem(CACHE_PREFIX + "app_favicon") || "";
   const cachedAppBgImage =
     localStorage.getItem(CACHE_PREFIX + "app_bg_image") || "";
-  const isCommercial =
-    localStorage.getItem(CACHE_PREFIX + "is_commercial") === "true";
   const hideFooterBrand =
     localStorage.getItem(CACHE_PREFIX + "hide_footer_brand") === "true";
+  const cachedFooterText =
+    localStorage.getItem(CACHE_PREFIX + "footer_text") || "Powered by FLVX";
 
   if (cachedAppName) {
     return {
@@ -113,8 +115,8 @@ const getInitialConfig = () => {
       app_logo: cachedAppLogo,
       app_favicon: cachedAppFavicon,
       app_bg_image: cachedAppBgImage,
-      is_commercial: isCommercial,
       hide_footer_brand: hideFooterBrand,
+      footer_text: cachedFooterText,
     };
   }
 
@@ -126,8 +128,8 @@ const getInitialConfig = () => {
     app_logo: cachedAppLogo,
     app_favicon: cachedAppFavicon,
     app_bg_image: cachedAppBgImage,
-    is_commercial: isCommercial,
     hide_footer_brand: hideFooterBrand,
+    footer_text: cachedFooterText,
   };
 };
 
@@ -344,6 +346,14 @@ export const updateSiteConfig = async (configMap?: Record<string, string>) => {
     resolvedConfigMap,
     "app_bg_image",
   );
+  const hasHideFooterBrand = Object.prototype.hasOwnProperty.call(
+    resolvedConfigMap,
+    "hide_footer_brand",
+  );
+  const hasFooterText = Object.prototype.hasOwnProperty.call(
+    resolvedConfigMap,
+    "footer_text",
+  );
 
   const appName = hasAppName
     ? String(resolvedConfigMap.app_name || "").trim()
@@ -357,6 +367,12 @@ export const updateSiteConfig = async (configMap?: Record<string, string>) => {
   const appBgImage = hasAppBgImage
     ? String(resolvedConfigMap.app_bg_image || "").trim()
     : (siteConfig.app_bg_image || "").trim();
+  const hideFooterBrand = hasHideFooterBrand
+    ? resolvedConfigMap.hide_footer_brand === "true"
+    : siteConfig.hide_footer_brand === true;
+  const footerText = hasFooterText
+    ? String(resolvedConfigMap.footer_text || "").trim()
+    : (siteConfig.footer_text || "").trim();
 
   if (appName && appName !== siteConfig.name) {
     siteConfig.name = appName;
@@ -365,8 +381,8 @@ export const updateSiteConfig = async (configMap?: Record<string, string>) => {
   siteConfig.app_logo = appLogo;
   siteConfig.app_favicon = appFavicon;
   siteConfig.app_bg_image = appBgImage;
-  siteConfig.is_commercial = resolvedConfigMap.is_commercial === "true";
-  siteConfig.hide_footer_brand = resolvedConfigMap.hide_footer_brand === "true";
+  siteConfig.hide_footer_brand = hideFooterBrand;
+  siteConfig.footer_text = footerText;
 
   if (typeof document !== "undefined") {
     document.title = siteConfig.name;

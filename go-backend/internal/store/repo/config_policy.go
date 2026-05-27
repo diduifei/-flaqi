@@ -14,6 +14,8 @@ var publicConfigKeys = map[string]struct{}{
 	"app_logo":            {},
 	"app_favicon":         {},
 	"app_bg_image":        {},
+	"hide_footer_brand":   {},
+	"footer_text":         {},
 	"cloudflare_site_key": {},
 }
 
