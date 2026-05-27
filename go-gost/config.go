@@ -41,3 +41,12 @@ func LoadConfig(configPath string) (*Config, error) {
 
 	return &config, nil
 }
+
+// SaveConfig writes the agent runtime config so restart/reconnect paths share one source.
+func SaveConfig(configPath string, config *Config) error {
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode config failed: %v", err)
+	}
+	return os.WriteFile(configPath, data, 0600)
+}

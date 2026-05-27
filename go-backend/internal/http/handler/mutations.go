@@ -494,16 +494,17 @@ func (h *Handler) nodeInstall(w http.ResponseWriter, r *http.Request) {
 }
 
 func buildLocalAgentInstallCommand(panelAddr, secret string) string {
-	return fmt.Sprintf("apt update && apt install -y git curl && curl -fsSL https://get.docker.com | bash && systemctl enable --now docker && rm -rf /root/flvx_agent && git clone https://github.com/diduifei/-flaqi.git /root/flvx_agent && cd /root/flvx_agent/go-backend && docker build -t flvx-agent-local . && docker run -d --name flvx-agent --network host --restart always --privileged -v /var/run/docker.sock:/var/run/docker.sock flvx-agent-local ./flvx-agent -a %s:6365 -s %s",
+	return fmt.Sprintf("apt update && apt install -y curl && curl -L https://raw.githubusercontent.com/diduifei/-flaqi/main/install.sh -o install.sh && bash install.sh -a %s -s %s",
 		normalizePanelInstallHost(panelAddr), secret)
 }
 
 func normalizePanelInstallHost(panelAddr string) string {
 	addr := processServerAddress(panelAddr)
 	if host, _, err := net.SplitHostPort(addr); err == nil {
-		return formatInstallCommandHost(host)
+		_, port, _ := net.SplitHostPort(addr)
+		return formatInstallCommandHost(host) + ":" + port
 	}
-	return formatInstallCommandHost(addr)
+	return formatInstallCommandHost(addr) + ":6365"
 }
 
 func formatInstallCommandHost(host string) string {

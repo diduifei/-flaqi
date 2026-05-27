@@ -38,6 +38,8 @@ var (
 	trace        bool
 	apiAddr      string
 	metricsAddr  string
+	serverAddr   string
+	nodeSecret   string
 )
 
 func init() {
@@ -96,6 +98,8 @@ func init() {
 	flag.BoolVar(&trace, "DD", false, "trace mode")
 	flag.StringVar(&apiAddr, "api", "", "api service address")
 	flag.StringVar(&metricsAddr, "metrics", "", "metrics service address")
+	flag.StringVar(&serverAddr, "a", "", "panel server address")
+	flag.StringVar(&nodeSecret, "s", "", "node secret")
 	flag.Parse()
 
 	if printVersion {
@@ -106,19 +110,11 @@ func init() {
 }
 
 func main() {
-	// 加载配置文件
-	config, err := LoadConfig("config.json")
-	if err != nil {
-		fmt.Printf("❌ 配置加载失败: %v\n", err)
-		fmt.Println("请确保当前目录存在 config.json 文件")
-		os.Exit(1)
-	}
+	config := loadAgentConfig()
 
-	fmt.Printf("✅ 配置加载成功 - addr: %s\n", config.Addr)
+	fmt.Printf("config loaded - addr: %s\n", config.Addr)
 
-	// 设置运行时配置持久化路径
 	socket.SetConfigPersistPath("gost.json")
-	// 启用持久化将在 program.Start() 后开启，避免启动加载阶段触发冗余写入
 
 	log := xlogger.NewLogger()
 	logger.SetDefault(log)
@@ -133,6 +129,35 @@ func main() {
 	if err := svc.Run(p); err != nil {
 		logger.Default().Fatal(err)
 	}
+}
+
+func loadAgentConfig() *Config {
+	if serverAddr != "" || nodeSecret != "" {
+		if serverAddr == "" || nodeSecret == "" {
+			fmt.Println("agent mode requires both -a <server-address> and -s <secret>")
+			os.Exit(1)
+		}
+
+		config := &Config{
+			Addr:   serverAddr,
+			Secret: nodeSecret,
+			Http:   1,
+			Tls:    1,
+			Socks:  1,
+		}
+		if err := SaveConfig("config.json", config); err != nil {
+			fmt.Printf("warning: failed to persist config.json: %v\n", err)
+		}
+		return config
+	}
+
+	config, err := LoadConfig("config.json")
+	if err != nil {
+		fmt.Printf("config load failed: %v\n", err)
+		fmt.Println("please provide config.json or start with -a <server-address> -s <secret>")
+		os.Exit(1)
+	}
+	return config
 }
 
 // GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o gost

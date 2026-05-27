@@ -1,26 +1,25 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# FLVX custom full-stack installer.
-# Defaults to diduifei/-flaqi and builds backend, agent, and frontend from source.
+REPO="${FLVX_REPO:-diduifei/-flaqi}"
+VERSION="${FLVX_AGENT_VERSION:-latest-agent}"
+INSTALL_DIR="${FLVX_AGENT_INSTALL_DIR:-/usr/local/bin}"
+CONFIG_DIR="${FLVX_AGENT_CONFIG_DIR:-/etc/flvx-agent}"
+SERVICE_FILE="/etc/systemd/system/flvx-agent.service"
+SERVER_ADDR=""
+NODE_SECRET=""
 
-REPO_URL="${FLVX_REPO_URL:-https://github.com/diduifei/-flaqi.git}"
-BRANCH="${FLVX_BRANCH:-main}"
-APP_DIR="${FLVX_APP_DIR:-/opt/flvx}"
-DATA_DIR="${FLVX_DATA_DIR:-/var/lib/flvx}"
-CONFIG_DIR="${FLVX_CONFIG_DIR:-/etc/flvx}"
-WEB_DIR="${FLVX_WEB_DIR:-/var/www/flvx}"
-AGENT_CONFIG_DIR="${FLVX_AGENT_CONFIG_DIR:-/etc/flux_agent}"
-BACKEND_ADDR="${FLVX_BACKEND_ADDR:-127.0.0.1:6365}"
-PUBLIC_URL="${FLVX_PUBLIC_URL:-http://127.0.0.1:6365}"
-AGENT_SECRET="${FLVX_AGENT_SECRET:-}"
-GO_VERSION="${FLVX_GO_VERSION:-1.25.7}"
-PNPM_VERSION="${FLVX_PNPM_VERSION:-11.3.0}"
-CADDY_ENABLED="${FLVX_ENABLE_CADDY:-}"
-CADDY_MODE="${FLVX_CADDY_MODE:-}"
-CADDY_DOMAIN="${FLVX_DOMAIN:-}"
-CADDY_SITE_ADDR=":80"
-CADDY_PANEL_URL=""
+usage() {
+  cat <<USAGE
+Usage: bash install.sh -a <panel-address:port> -s <node-secret>
+
+Options:
+  -a    Panel server address, for example 1.2.3.4:6365
+  -s    Node communication secret/token
+  -v    Release tag to install, defaults to latest-agent
+  -h    Show this help
+USAGE
+}
 
 log() {
   printf '\n==> %s\n' "$*"
@@ -33,289 +32,114 @@ need_root() {
   fi
 }
 
-arch_name() {
+detect_arch() {
   case "$(uname -m)" in
     x86_64|amd64) echo "amd64" ;;
     aarch64|arm64) echo "arm64" ;;
-    *) echo "amd64" ;;
-  esac
-}
-
-install_base_packages() {
-  log "Installing system dependencies"
-  apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    ca-certificates curl wget git gnupg lsb-release apt-transport-https \
-    nftables build-essential openssl
-  systemctl enable --now nftables || true
-}
-
-configure_caddy_options() {
-  if [[ -z "$CADDY_ENABLED" ]]; then
-    read -r -p "是否开启 Caddy 反代? (Y/n): " CADDY_ENABLED
-  fi
-
-  case "${CADDY_ENABLED,,}" in
-    n|no|false|0)
-      CADDY_ENABLED="false"
-      return
-      ;;
     *)
-      CADDY_ENABLED="true"
-      ;;
-  esac
-
-  if [[ -z "$CADDY_MODE" ]]; then
-    echo "请选择 Caddy 反代模式："
-    echo "1) 绑定自定义域名并自动配置 HTTPS"
-    echo "2) 仅使用纯 IP 端口反代"
-    read -r -p "请输入选项 [1/2，默认 2]: " CADDY_MODE
-  fi
-
-  case "$CADDY_MODE" in
-    1|domain|https)
-      while [[ -z "$CADDY_DOMAIN" ]]; do
-        read -r -p "请输入绑定域名（例如 panel.yourdomain.com）: " CADDY_DOMAIN
-      done
-      CADDY_SITE_ADDR="$CADDY_DOMAIN"
-      CADDY_PANEL_URL="https://${CADDY_DOMAIN}"
-      ;;
-    *)
-      CADDY_MODE="2"
-      CADDY_SITE_ADDR=":80"
+      echo "Unsupported architecture: $(uname -m)" >&2
+      exit 1
       ;;
   esac
 }
 
-enable_kernel_forwarding() {
-  log "Enabling Linux kernel IP forwarding"
-  sysctl -w net.ipv4.ip_forward=1
-  if grep -qE '^[#[:space:]]*net\.ipv4\.ip_forward[[:space:]]*=' /etc/sysctl.conf; then
-    sed -i -E 's|^[#[:space:]]*net\.ipv4\.ip_forward[[:space:]]*=.*|net.ipv4.ip_forward = 1|' /etc/sysctl.conf
-  else
-    printf '\nnet.ipv4.ip_forward = 1\n' >> /etc/sysctl.conf
-  fi
-  sysctl -p
-}
-
-install_caddy() {
-  if [[ "$CADDY_ENABLED" != "true" ]]; then
-    log "Skipping Caddy installation"
-    return
-  fi
-
-  log "Installing Caddy"
-  if ! command -v caddy >/dev/null 2>&1; then
-    install -d -m 0755 /etc/apt/keyrings
-    curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
-      | gpg --dearmor -o /etc/apt/keyrings/caddy-stable-archive-keyring.gpg
-    curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/deb.deb.txt \
-      -o /etc/apt/sources.list.d/caddy-stable.list
+install_base_tools() {
+  if command -v apt-get >/dev/null 2>&1; then
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y caddy
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y ca-certificates curl
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y ca-certificates curl
   fi
 }
 
-install_go() {
-  log "Installing Go ${GO_VERSION}"
-  if command -v go >/dev/null 2>&1 && go version | grep -q "go${GO_VERSION}"; then
-    return
-  fi
-  local arch tarball
-  arch="$(arch_name)"
-  tarball="/tmp/go${GO_VERSION}.linux-${arch}.tar.gz"
-  wget -O "$tarball" "https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz"
-  rm -rf /usr/local/go
-  tar -C /usr/local -xzf "$tarball"
-  ln -sf /usr/local/go/bin/go /usr/local/bin/go
-  ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
-}
+download_agent() {
+  local arch url tmp
+  arch="$(detect_arch)"
+  tmp="/tmp/flvx-agent-linux-${arch}"
 
-install_node_and_pnpm() {
-  log "Installing Node.js and pnpm"
-  if ! command -v node >/dev/null 2>&1; then
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-    DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
-  fi
-  corepack enable
-  corepack prepare "pnpm@${PNPM_VERSION}" --activate
-}
-
-fetch_source() {
-  log "Fetching source from ${REPO_URL}"
-  rm -rf "$APP_DIR"
-  git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$APP_DIR" \
-    || git clone --depth 1 "$REPO_URL" "$APP_DIR"
-}
-
-build_backend() {
-  log "Building backend"
-  cd "$APP_DIR/go-backend"
-  /usr/local/go/bin/go env -w GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}"
-  /usr/local/go/bin/go build -o /usr/local/bin/flvx-server ./cmd/paneld
-}
-
-build_agent() {
-  log "Building agent"
-  cd "$APP_DIR/go-gost"
-  CGO_ENABLED=0 /usr/local/go/bin/go build -ldflags="-s -w" -o /usr/local/bin/flvx-agent .
-}
-
-build_frontend() {
-  log "Building frontend"
-  cd "$APP_DIR/vite-frontend"
-  corepack pnpm install --frozen-lockfile
-  corepack pnpm run build
-  rm -rf "$WEB_DIR"
-  install -d -m 0755 "$WEB_DIR"
-  cp -a dist/. "$WEB_DIR/"
-}
-
-write_backend_service() {
-  log "Configuring backend service"
-  install -d -m 0755 "$CONFIG_DIR" "$DATA_DIR"
-  if [[ ! -f "$CONFIG_DIR/backend.env" ]]; then
-    umask 077
-    cat > "$CONFIG_DIR/backend.env" <<EOF
-SERVER_ADDR=${BACKEND_ADDR}
-DB_PATH=${DATA_DIR}/gost.db
-JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || date +%s%N)
-EOF
+  if [[ "$VERSION" == "latest" ]]; then
+    url="https://github.com/${REPO}/releases/latest/download/flvx-agent-linux-${arch}"
+  else
+    url="https://github.com/${REPO}/releases/download/${VERSION}/flvx-agent-linux-${arch}"
   fi
 
-  cat > /etc/systemd/system/flvx-server.service <<EOF
-[Unit]
-Description=FLVX admin API
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-EnvironmentFile=${CONFIG_DIR}/backend.env
-WorkingDirectory=${DATA_DIR}
-ExecStart=/usr/local/bin/flvx-server
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-EOF
+  log "Downloading flvx-agent (${arch}) from ${url}"
+  curl -fL "$url" -o "$tmp"
+  install -m 0755 "$tmp" "${INSTALL_DIR}/flvx-agent"
 }
 
-write_agent_service() {
-  log "Configuring agent service"
-  install -d -m 0755 "$AGENT_CONFIG_DIR"
-  if [[ -n "$AGENT_SECRET" ]]; then
-    cat > "$AGENT_CONFIG_DIR/config.json" <<EOF
+write_service() {
+  log "Writing systemd service"
+  install -d -m 0755 "$CONFIG_DIR"
+
+  cat > "${CONFIG_DIR}/config.json" <<EOF
 {
-  "addr": "${PUBLIC_URL}",
-  "secret": "${AGENT_SECRET}",
+  "addr": "${SERVER_ADDR}",
+  "secret": "${NODE_SECRET}",
   "http": 1,
   "tls": 1,
   "socks": 1
 }
 EOF
-  elif [[ ! -f "$AGENT_CONFIG_DIR/config.json" ]]; then
-    cat > "$AGENT_CONFIG_DIR/config.example.json" <<EOF
-{
-  "addr": "${PUBLIC_URL}",
-  "secret": "paste-node-secret-here",
-  "http": 1,
-  "tls": 1,
-  "socks": 1
-}
-EOF
-  fi
+  chmod 0600 "${CONFIG_DIR}/config.json"
 
-  cat > /etc/systemd/system/flvx-agent.service <<EOF
+  cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=FLVX forwarding agent
-After=network-online.target flvx-server.service
+After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=${AGENT_CONFIG_DIR}
-ExecStart=/usr/local/bin/flvx-agent
+User=root
+Group=root
+WorkingDirectory=${CONFIG_DIR}
+ExecStart=${INSTALL_DIR}/flvx-agent -a ${SERVER_ADDR} -s ${NODE_SECRET}
 Restart=always
 RestartSec=3
+LimitNOFILE=1048576
 
 [Install]
 WantedBy=multi-user.target
 EOF
 }
 
-write_caddyfile() {
-  if [[ "$CADDY_ENABLED" != "true" ]]; then
-    return
-  fi
-
-  log "Configuring Caddy"
-  cat > /etc/caddy/Caddyfile <<EOF
-${CADDY_SITE_ADDR} {
-    encode gzip zstd
-
-    handle /api/* {
-        reverse_proxy ${BACKEND_ADDR}
-    }
-
-    handle /system-info* {
-        reverse_proxy ${BACKEND_ADDR}
-    }
-
-    handle {
-        root * ${WEB_DIR}
-        try_files {path} {path}/ /index.html
-        file_server
-    }
-}
-EOF
-}
-
-start_services() {
-  log "Starting services"
+start_service() {
+  log "Starting flvx-agent"
   systemctl daemon-reload
-  systemctl enable --now flvx-server
-  if [[ "$CADDY_ENABLED" == "true" ]]; then
-    systemctl restart caddy
-  fi
-  if [[ -f "$AGENT_CONFIG_DIR/config.json" ]]; then
-    systemctl enable --now flvx-agent
-  else
-    systemctl enable flvx-agent >/dev/null 2>&1 || true
-    echo "Agent binary installed. Create ${AGENT_CONFIG_DIR}/config.json with a node secret, then run: systemctl start flvx-agent"
-  fi
+  systemctl enable --now flvx-agent
+  systemctl status flvx-agent --no-pager || true
 }
 
-main() {
-  need_root
-  configure_caddy_options
-  install_base_packages
-  enable_kernel_forwarding
-  install_caddy
-  install_go
-  install_node_and_pnpm
-  fetch_source
-  build_backend
-  build_agent
-  build_frontend
-  write_backend_service
-  write_agent_service
-  write_caddyfile
-  start_services
+while getopts ":a:s:v:h" opt; do
+  case "$opt" in
+    a) SERVER_ADDR="$OPTARG" ;;
+    s) NODE_SECRET="$OPTARG" ;;
+    v) VERSION="$OPTARG" ;;
+    h)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+done
 
-  local ip
-  ip="$(curl -fsSL https://ipv4.icanhazip.com 2>/dev/null || hostname -I | awk '{print $1}')"
-  if [[ -z "$CADDY_PANEL_URL" ]]; then
-    if [[ "$CADDY_ENABLED" == "true" ]]; then
-      CADDY_PANEL_URL="http://${ip}"
-    else
-      CADDY_PANEL_URL="http://${ip}:6365"
-    fi
-  fi
-  log "FLVX is ready"
-  echo "Panel: ${CADDY_PANEL_URL}"
-  echo "Backend: ${BACKEND_ADDR}"
-}
+if [[ -z "$SERVER_ADDR" || -z "$NODE_SECRET" ]]; then
+  usage
+  exit 1
+fi
 
-main "$@"
+need_root
+install_base_tools
+download_agent
+write_service
+start_service
+
+log "FLVX agent installed successfully"
+echo "Panel: ${SERVER_ADDR}"
+echo "Service: systemctl status flvx-agent"
