@@ -4,7 +4,7 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml* ./
-RUN corepack prepare pnpm@11.3.0 --activate && corepack enable pnpm && pnpm install --no-frozen-lockfile
+RUN corepack prepare pnpm@11.3.0 --activate && corepack enable pnpm && pnpm config set strict-dep-builds false && pnpm install --no-frozen-lockfile
 
 COPY . .
 RUN pnpm run build
