@@ -1,6 +1,6 @@
 services:
   flvx-server:
-    image: diduifei/flvx-panel:latest
+    image: diduigege/flvx-panel:latest
     container_name: flvx-server
     restart: always
     ports:
@@ -22,7 +22,7 @@ services:
         max-file: "3"
 
   flvx-frontend:
-    image: diduifei/flvx-frontend:latest
+    image: diduigege/flvx-frontend:latest
     container_name: flvx-frontend
     restart: always
     ports:

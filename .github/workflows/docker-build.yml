@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKERHUB_NAMESPACE: diduifei
+  DOCKERHUB_NAMESPACE: diduigege
   PANEL_IMAGE: flvx-panel
   FRONTEND_IMAGE: flvx-frontend
 

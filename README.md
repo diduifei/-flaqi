@@ -13,8 +13,8 @@ curl -L https://raw.githubusercontent.com/diduifei/-flaqi/main/panel_install.sh 
 默认镜像：
 
 ```text
-diduifei/flvx-panel:latest
-diduifei/flvx-frontend:latest
+diduigege/flvx-panel:latest
+diduigege/flvx-frontend:latest
 ```
 
 ## 节点端快速部署

@@ -8,6 +8,10 @@ CONFIG_DIR="${FLVX_AGENT_CONFIG_DIR:-/etc/flvx-agent}"
 SERVICE_FILE="/etc/systemd/system/flvx-agent.service"
 SERVER_ADDR=""
 NODE_SECRET=""
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
 usage() {
   cat <<USAGE
@@ -25,10 +29,22 @@ log() {
   printf '\n==> %s\n' "$*"
 }
 
+fail() {
+  echo -e "${RED}❌ 错误：$*${NC}" >&2
+  exit 1
+}
+
+run_step() {
+  local message="$1"
+  shift
+  if ! "$@"; then
+    fail "$message"
+  fi
+}
+
 need_root() {
   if [[ "${EUID}" -ne 0 ]]; then
-    echo "Please run as root." >&2
-    exit 1
+    fail "Please run as root."
   fi
 }
 
@@ -45,12 +61,12 @@ detect_arch() {
 
 install_base_tools() {
   if command -v apt-get >/dev/null 2>&1; then
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl
+    run_step "apt update failed, please check network or apt sources." apt-get update
+    run_step "failed to install base tools." env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl
   elif command -v yum >/dev/null 2>&1; then
-    yum install -y ca-certificates curl
+    run_step "failed to install base tools." yum install -y ca-certificates curl
   elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y ca-certificates curl
+    run_step "failed to install base tools." dnf install -y ca-certificates curl
   fi
 }
 
@@ -66,15 +82,15 @@ download_agent() {
   fi
 
   log "Downloading flvx-agent (${arch}) from ${url}"
-  curl -fL "$url" -o "$tmp"
-  install -m 0755 "$tmp" "${INSTALL_DIR}/flvx-agent"
+  run_step "failed to download flvx-agent binary from GitHub Releases." curl -fL "$url" -o "$tmp"
+  run_step "failed to install flvx-agent into ${INSTALL_DIR}." install -m 0755 "$tmp" "${INSTALL_DIR}/flvx-agent"
 }
 
 write_service() {
   log "Writing systemd service"
-  install -d -m 0755 "$CONFIG_DIR"
+  run_step "failed to create config directory." install -d -m 0755 "$CONFIG_DIR"
 
-  cat > "${CONFIG_DIR}/config.json" <<EOF
+  if ! cat > "${CONFIG_DIR}/config.json" <<EOF
 {
   "addr": "${SERVER_ADDR}",
   "secret": "${NODE_SECRET}",
@@ -83,9 +99,12 @@ write_service() {
   "socks": 1
 }
 EOF
-  chmod 0600 "${CONFIG_DIR}/config.json"
+  then
+    fail "failed to write agent config."
+  fi
+  run_step "failed to protect agent config permissions." chmod 0600 "${CONFIG_DIR}/config.json"
 
-  cat > "$SERVICE_FILE" <<EOF
+  if ! cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=FLVX forwarding agent
 After=network-online.target docker.service
@@ -104,13 +123,29 @@ LimitNOFILE=1048576
 [Install]
 WantedBy=multi-user.target
 EOF
+  then
+    fail "failed to write systemd service."
+  fi
 }
 
 start_service() {
   log "Starting flvx-agent"
-  systemctl daemon-reload
-  systemctl enable --now flvx-agent
-  systemctl status flvx-agent --no-pager || true
+  run_step "systemctl daemon-reload failed." systemctl daemon-reload
+  run_step "failed to enable/start flvx-agent service." systemctl enable --now flvx-agent
+  health_check_agent
+}
+
+health_check_agent() {
+  log "Waiting for flvx-agent health check"
+  sleep 5
+
+  if ! systemctl is-active --quiet flvx-agent; then
+    echo -e "${RED}❌ 致命错误：flvx-agent 启动失败或不断崩溃！${NC}" >&2
+    echo -e "${YELLOW}========== flvx-agent 最近 15 行日志 ==========${NC}" >&2
+    journalctl -u flvx-agent -n 15 --no-pager || true
+    echo -e "${YELLOW}===============================================${NC}" >&2
+    exit 1
+  fi
 }
 
 while getopts ":a:s:v:h" opt; do
@@ -141,5 +176,5 @@ write_service
 start_service
 
 log "FLVX agent installed successfully"
-echo "Panel: ${SERVER_ADDR}"
-echo "Service: systemctl status flvx-agent"
+echo -e "${GREEN}Panel: ${SERVER_ADDR}${NC}"
+echo -e "${GREEN}Service: systemctl status flvx-agent${NC}"

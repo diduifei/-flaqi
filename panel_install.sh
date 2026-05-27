@@ -2,10 +2,13 @@
 set -Eeuo pipefail
 
 APP_DIR="${FLVX_APP_DIR:-/root/flvx}"
-BACKEND_IMAGE="${FLVX_BACKEND_IMAGE:-diduifei/flvx-panel:latest}"
-FRONTEND_IMAGE="${FLVX_FRONTEND_IMAGE:-diduifei/flvx-frontend:latest}"
+BACKEND_IMAGE="${FLVX_BACKEND_IMAGE:-diduigege/flvx-panel:latest}"
+FRONTEND_IMAGE="${FLVX_FRONTEND_IMAGE:-diduigege/flvx-frontend:latest}"
+FRONTEND_CONTAINER="flvx-frontend"
+BACKEND_CONTAINER="flvx-server"
 FRONTEND_PORT=""
 BACKEND_PORT=""
+SERVER_IP=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -16,42 +19,61 @@ log() {
   printf '\n==> %s\n' "$*"
 }
 
+fail() {
+  echo -e "${RED}❌ 错误：$*${NC}" >&2
+  exit 1
+}
+
+run_step() {
+  local message="$1"
+  shift
+  if ! "$@"; then
+    fail "$message"
+  fi
+}
+
 need_root() {
   if [[ "${EUID}" -ne 0 ]]; then
-    echo "请使用 root 用户运行本脚本。" >&2
-    exit 1
+    fail "请使用 root 用户运行本脚本。"
   fi
 }
 
 install_base_tools() {
+  log "正在检查基础依赖"
   if command -v apt-get >/dev/null 2>&1; then
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl
+    run_step "apt update 失败，请检查服务器网络或软件源！" apt-get update
+    run_step "安装基础依赖失败！" env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl iproute2
   elif command -v yum >/dev/null 2>&1; then
-    yum install -y ca-certificates curl
+    run_step "安装基础依赖失败！" yum install -y ca-certificates curl iproute
   elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y ca-certificates curl
+    run_step "安装基础依赖失败！" dnf install -y ca-certificates curl iproute
+  else
+    fail "未识别的 Linux 发行版，请手动安装 curl 和 Docker。"
   fi
 }
 
 install_docker() {
   if ! command -v docker >/dev/null 2>&1; then
     log "正在安装 Docker"
-    curl -fsSL https://get.docker.com | bash
+    if ! curl -fsSL https://get.docker.com | bash; then
+      fail "Docker 安装失败，请检查网络！"
+    fi
   fi
 
   if ! docker compose version >/dev/null 2>&1; then
     log "正在安装 Docker Compose Plugin"
     if command -v apt-get >/dev/null 2>&1; then
-      apt-get update
-      DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-plugin
+      run_step "apt update 失败，请检查服务器网络或软件源！" apt-get update
+      run_step "Docker Compose Plugin 安装失败！" env DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-plugin
     else
-      echo -e "${RED}Docker Compose Plugin 未安装，请手动安装后重试。${NC}" >&2
-      exit 1
+      fail "Docker Compose Plugin 未安装，请手动安装后重试。"
     fi
   fi
 
   systemctl enable --now docker >/dev/null 2>&1 || true
+  if ! docker info >/dev/null 2>&1; then
+    fail "Docker 服务未正常运行，请先检查 systemctl status docker。"
+  fi
 }
 
 show_menu() {
@@ -151,7 +173,7 @@ setup_ports() {
     if [[ "$BACKEND_PORT" != "$FRONTEND_PORT" ]]; then
       break
     fi
-    echo -e "${RED}❌ 前端端口和后端端口不能相同，请重新输入后端端口。${NC}"
+    echo -e "${RED}❌ 前端端口和后端端口不能相同，请重新输入后端端口。${NC}" >&2
   done
 }
 
@@ -173,9 +195,11 @@ get_or_create_jwt_secret() {
 
   if [[ -z "$secret" ]]; then
     secret="$(generate_secret)"
-    mkdir -p "$APP_DIR"
+    run_step "创建安装目录失败！" mkdir -p "$APP_DIR"
     umask 077
-    printf 'JWT_SECRET=%s\n' "$secret" > "$env_file"
+    if ! printf 'JWT_SECRET=%s\n' "$secret" > "$env_file"; then
+      fail "写入 JWT_SECRET 失败！"
+    fi
   fi
 
   echo "$secret"
@@ -185,14 +209,14 @@ deploy_panel() {
   local jwt_secret
   jwt_secret="$(get_or_create_jwt_secret)"
 
-  mkdir -p "${APP_DIR}/data"
-  cd "$APP_DIR"
+  run_step "创建数据目录失败！" mkdir -p "${APP_DIR}/data"
+  cd "$APP_DIR" || fail "进入安装目录失败：${APP_DIR}"
 
-  cat > docker-compose.yml <<EOF
+  if ! cat > docker-compose.yml <<EOF
 services:
   flvx-server:
     image: ${BACKEND_IMAGE}
-    container_name: flvx-server
+    container_name: ${BACKEND_CONTAINER}
     restart: always
     ports:
       - "${BACKEND_PORT}:6365"
@@ -202,7 +226,7 @@ services:
       JWT_SECRET: "${jwt_secret}"
       TZ: "Asia/Shanghai"
       PANEL_DEPLOY_DIR: "${APP_DIR}"
-      PANEL_BACKEND_CONTAINER: "flvx-server"
+      PANEL_BACKEND_CONTAINER: "${BACKEND_CONTAINER}"
     volumes:
       - ./data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
@@ -214,7 +238,7 @@ services:
 
   flvx-frontend:
     image: ${FRONTEND_IMAGE}
-    container_name: flvx-frontend
+    container_name: ${FRONTEND_CONTAINER}
     restart: always
     ports:
       - "${FRONTEND_PORT}:80"
@@ -226,25 +250,97 @@ services:
         max-size: "10m"
         max-file: "3"
 EOF
+  then
+    fail "生成 docker-compose.yml 失败！"
+  fi
 
-  log "正在拉取镜像并启动 FLVX 面板"
-  docker compose pull
-  docker compose up -d --remove-orphans
+  log "正在拉取镜像"
+  if ! docker compose pull; then
+    fail "拉取 Docker 镜像失败，请检查网络或 Docker Hub 镜像是否存在！"
+  fi
+
+  log "正在启动 FLVX 面板"
+  if ! docker compose up -d --remove-orphans; then
+    fail "docker compose up 执行失败，请检查 docker-compose.yml。"
+  fi
+
+  health_check_panel
+}
+
+print_container_logs() {
+  local name="$1"
+  echo -e "${YELLOW}========== ${name} 最近 15 行日志 ==========${NC}" >&2
+  docker logs --tail 15 "$name" 2>&1 || true
+  echo -e "${YELLOW}===========================================${NC}" >&2
+}
+
+check_container_running() {
+  local name="$1"
+  local status
+
+  if ! docker inspect "$name" >/dev/null 2>&1; then
+    echo -e "${RED}❌ 致命错误：容器 ${name} 不存在！${NC}" >&2
+    return 1
+  fi
+
+  status="$(docker inspect -f '{{.State.Status}}' "$name" 2>/dev/null || true)"
+  if [[ "$status" != "running" ]]; then
+    echo -e "${RED}❌ 致命错误：面板容器启动失败或不断崩溃！容器 ${name} 当前状态: ${status:-unknown}${NC}" >&2
+    print_container_logs "$name"
+    return 1
+  fi
+}
+
+check_http_port() {
+  local label="$1"
+  local port="$2"
+  local code
+
+  code="$(curl -sS --max-time 8 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/" 2>/dev/null || true)"
+  if [[ "$code" == "000" || -z "$code" ]]; then
+    echo -e "${RED}❌ 错误：${label}端口 ${port} 未成功开放或无法访问！${NC}" >&2
+    return 1
+  fi
+}
+
+health_check_panel() {
+  log "等待容器启动并执行健康检测"
+  sleep 5
+
+  check_container_running "$BACKEND_CONTAINER" || fail "后端容器健康检测失败。"
+  check_container_running "$FRONTEND_CONTAINER" || fail "前端容器健康检测失败。"
+  check_http_port "前端" "$FRONTEND_PORT" || fail "前端端口健康检测失败。"
+  check_http_port "后端" "$BACKEND_PORT" || fail "后端端口健康检测失败。"
+}
+
+detect_server_ip() {
+  SERVER_IP="$(curl -fsSL --max-time 5 https://ipv4.icanhazip.com 2>/dev/null || hostname -I | awk '{print $1}')"
+  SERVER_IP="${SERVER_IP:-服务器IP}"
+}
+
+print_success_panel() {
+  detect_server_ip
+  echo -e "${GREEN}"
+  cat <<EOF
+=========================================
+ 🎉 FLVX 面板安装/更新成功！
+=========================================
+ ▶ 前端访问地址: http://${SERVER_IP}:${FRONTEND_PORT}
+ ▶ 后端通讯端口: ${BACKEND_PORT}
+ ▶ 面板安装目录: ${APP_DIR}
+
+ 如遇问题，可执行 docker logs ${FRONTEND_CONTAINER} 查看日志
+=========================================
+EOF
+  echo -e "${NC}"
 }
 
 install_or_update_panel() {
   install_base_tools
   install_docker
   setup_ports
-  mkdir -p "$APP_DIR"
   deploy_panel
-
-  local ip
-  ip="$(curl -fsSL https://ipv4.icanhazip.com 2>/dev/null || hostname -I | awk '{print $1}')"
-  log "FLVX 面板安装/更新完成"
-  echo -e "${GREEN}✨ 前端地址: http://${ip}:${FRONTEND_PORT}${NC}"
-  echo -e "${GREEN}✨ 后端端口: ${BACKEND_PORT}${NC}"
-  echo "安装目录: ${APP_DIR}"
+  print_success_panel
 }
 
 uninstall_panel() {
@@ -258,10 +354,10 @@ uninstall_panel() {
   if [[ -d "$APP_DIR" ]]; then
     if [[ -f "${APP_DIR}/docker-compose.yml" ]]; then
       log "正在停止并清理 FLVX 容器、镜像和数据卷"
-      (cd "$APP_DIR" && docker compose down --rmi all --volumes) || true
+      (cd "$APP_DIR" && docker compose down --rmi all --volumes) || fail "卸载容器、镜像或数据卷失败！"
     fi
     log "正在删除安装目录"
-    rm -rf "$APP_DIR"
+    run_step "删除安装目录失败！" rm -rf "$APP_DIR"
   else
     echo -e "${YELLOW}未检测到 ${APP_DIR}，无需清理安装目录。${NC}"
   fi
@@ -275,6 +371,7 @@ change_ports() {
     return
   fi
 
+  echo -e "${YELLOW}⚠️ 修改后端端口会改变节点连接地址，请同步更新节点端连接配置，否则节点可能离线。${NC}"
   install_base_tools
   install_docker
   setup_ports
